@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neural Biped Locomotion</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="/client/motion.css">
+</head>
+<body data-demo="biped">
+    <div id="viewport"></div>
+    <div id="header"><h1 id="demo-title">Neural Biped Locomotion</h1></div>
+    <div id="header-nav"><a id="back-link" href="/">Return to Menu</a></div>
+    <div id="busy-overlay" class="hidden"><div id="busy-box"><h1>Server Busy</h1><p>The server is currently running a demo for another user. Please return to the menu to join the queue.</p><hr><p class="overlay-footer"><em>Clone the <a href="https://github.com/facebookresearch/ai4animationpy" target="_blank">GitHub repo</a> to run locally.</em></p><a id="busy-back-link" href="/">Return to Menu</a></div></div>
+    <div id="timeout-overlay" class="hidden"><div id="timeout-box"><h1>Session Expired</h1><p>Your 3-minute session has ended. Thank you for trying the demo!</p><hr><p class="overlay-footer"><em>Clone the <a href="https://github.com/facebookresearch/ai4animationpy" target="_blank">GitHub repo</a> to run locally.</em></p><a id="reload-btn" href="/">Return to Menu</a></div></div>
+    <div id="overlay"><div id="hud-row"><div id="status"><span id="connection-dot"></span><span id="connection-text">Connecting...</span></div><div id="fps-display"><span id="render-fps">--</span> FPS</div><div id="perf-display" class="hidden"><span id="server-fps">--</span> srv | <span id="inference-time">--</span> ms inf</div><div id="session-timer" class="hidden"><span id="timer-value">3:00</span></div></div><div id="style-display">Style: —</div></div>
+    <div id="input-visualizer"><div id="input-device-label">Input: Keyboard</div><div id="keyboard-front-buttons"><div class="input-row"><span class="input-key" id="key-q">Q</span><span class="input-key" id="key-w">W</span><span class="input-key" id="key-e">E</span></div><div class="input-row"><span class="input-key" id="key-a">A</span><span class="input-key" id="key-s">S</span><span class="input-key" id="key-d">D</span></div></div><div id="gamepad-front-buttons" class="hidden"><div class="input-row"><span class="input-key" id="pad-lb">L1</span><span class="input-key" id="pad-rb">R1</span></div></div><div id="sticks-row" class="sticks-row"><div id="left-stick-column" class="stick-labeled hidden"><div class="stick-label">L</div><div id="left-stick-viz"><div id="left-stick-pointer"></div><div id="left-stick-dot"></div></div></div><div class="stick-labeled"><div class="stick-label">R</div><div id="right-stick-viz"><div id="right-stick-pointer"></div><div id="right-stick-dot"></div></div></div></div></div>
+    <span id="inference-ms" style="display:none;"></span>
+    <div id="controls-help"><div id="keyboard-controls" class="controls-section"><h3>Keyboard</h3><div class="control-row"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> Move</div><div class="control-row"><kbd>Q</kbd> / <kbd>E</kbd> Style</div><div class="control-row"><kbd>R Mouse</kbd> Facing</div><p class="gamepad-fallback-note">Gamepad supported - inputs will switch automatically when plugged in.</p></div><div id="gamepad-controls" class="controls-section hidden"><h3>Gamepad</h3><div class="control-row"><kbd>L Stick</kbd> Move</div><div class="control-row"><kbd>L1</kbd> / <kbd>R1</kbd> Style</div><div class="control-row"><kbd>R</kbd> Facing</div></div></div>
+    <div id="extra-hints"><div class="control-row"><kbd>Scroll</kbd> Zoom</div><div class="control-row"><kbd>G</kbd> Debug  <kbd>M</kbd> Mesh</div></div>
+    <div id="style-switcher"></div><div id="style-dropdown-label">Select Style</div><select id="style-dropdown" class="hidden"></select>
+    <a id="github-link" href="https://github.com/facebookresearch/ai4animationpy" target="_blank"><span id="github-label">AI4AnimationPy</span><svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg><span>GitHub</span></a>
+    <div id="touch-controls"><div id="joystick-left" class="joystick"><div class="joystick-knob" id="knob-left"></div></div><button id="debug-btn-mobile">Debug</button><div id="joystick-right" class="joystick"><div class="joystick-knob" id="knob-right"></div></div></div>
+    <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/" } }</script>
+    <script type="module" src="/client/biped.js"></script>
+</body>
+</html>

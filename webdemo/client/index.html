@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI4Animation Playground</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/client/style.css">
+</head>
+<body>
+  <div class="shell">
+    <header class="chrome">
+      <a class="brand" href="/">AI4Animation Playground</a>
+      <div class="chrome-actions">
+        <button id="back-button" class="button ghost hidden" type="button">All demos</button>
+        <button id="theme-button" class="button ghost" type="button">Theme</button>
+      </div>
+    </header>
+
+    <main id="landing-view" class="view">
+      <section class="hero">
+        <div class="hero-copy-block">
+          <p class="eyebrow">Local asset playground</p>
+          <h1 id="hero-title">Try motion assets and character rigs without the usual demo-site noise.</h1>
+          <p id="hero-copy" class="hero-copy">
+            A minimal browser surface for casually trying AI4AnimationPy demos with more restraint.
+          </p>
+        </div>
+        <div class="hero-aside">
+          <div class="hero-panel">
+            <p class="panel-kicker">What it is for</p>
+            <p id="hero-usecase" class="hero-note">
+              Quickly flipping through rigs, motion clips, and interaction tests before moving into a heavier tool.
+            </p>
+          </div>
+          <div id="hero-highlights" class="hero-highlights"></div>
+        </div>
+      </section>
+      <section class="section-head">
+        <p class="eyebrow">Available demos</p>
+        <p id="section-caption" class="section-caption">Pick a demo and start moving around.</p>
+      </section>
+      <section id="demo-grid" class="demo-grid"></section>
+    </main>
+
+    <main id="viewer-view" class="view hidden">
+      <section id="viewer-layout" class="viewer-layout">
+        <div class="stage">
+          <div id="viewport" class="viewport"></div>
+          <div class="viewer-overlay">
+            <div id="connection-badge" class="badge">Connecting</div>
+            <div class="stage-tools">
+              <p class="stage-hint">Drag to orbit. Scroll or +/- to zoom.</p>
+              <div class="nav-cluster">
+                <button id="zoom-out-button" class="button ghost subtle-button" type="button">-</button>
+                <button id="recenter-button" class="button ghost subtle-button" type="button">Recenter</button>
+                <button id="zoom-in-button" class="button ghost subtle-button" type="button">+</button>
+                <button id="panel-button" class="button ghost subtle-button" type="button">Hide panel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <aside class="panel">
+          <div class="panel-head">
+            <p id="demo-category" class="eyebrow"></p>
+            <h2 id="demo-title">Loading demo</h2>
+            <p id="demo-description" class="panel-copy"></p>
+            <div id="demo-meta" class="meta-strip"></div>
+          </div>
+
+          <div class="panel-group">
+            <div class="panel-row">
+              <span class="label">Playback</span>
+              <button id="playback-button" class="button" type="button">Pause</button>
+            </div>
+            <div class="panel-row">
+              <label class="label" for="speed-range">Speed</label>
+              <span id="speed-value" class="value">1.00x</span>
+            </div>
+            <input id="speed-range" class="range" type="range" min="0.25" max="1.75" step="0.05" value="1">
+          </div>
+
+          <div class="panel-group">
+            <div class="panel-row">
+              <span class="label">Mirror</span>
+              <label class="toggle">
+                <input id="mirror-toggle" type="checkbox">
+                <span>Off</span>
+              </label>
+            </div>
+            <div class="panel-row">
+              <span class="label">Skeleton</span>
+              <label class="toggle">
+                <input id="skeleton-toggle" type="checkbox">
+                <span>Off</span>
+              </label>
+            </div>
+          </div>
+
+          <div id="demo-controls" class="panel-group hidden"></div>
+
+          <div class="panel-group subtle">
+            <p class="label">Tips</p>
+            <p class="tip">Drag to orbit, scroll to zoom, and use the panel to mirror motion or adjust demo-specific controls.</p>
+          </div>
+        </aside>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+      }
+    }
+  </script>
+  <script type="module" src="/client/app.js"></script>
+</body>
+</html>
