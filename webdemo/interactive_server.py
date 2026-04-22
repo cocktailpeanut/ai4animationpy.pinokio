@@ -34,21 +34,21 @@ QUADRUPED_ASSETS = APP_DIR / "Demos" / "_ASSETS_" / "Quadruped"
 INTERACTIVE_DEMOS = [
     {
         "id": "biped-live",
-        "title": "Biped Control",
-        "description": "Drive Geno with keyboard, mouse, or gamepad in the actual locomotion web demo.",
+        "title": "Human",
+        "description": "Drive Geno manually or draw a route for the neural locomotion controller to follow.",
         "category": "Interactive",
         "assetLabel": "Geno locomotion",
-        "surfaceLabel": "Keyboard + gamepad",
-        "launchPath": "/play/biped",
+        "surfaceLabel": "Manual + Path",
+        "launchPath": "/play/human",
     },
     {
         "id": "quadruped-live",
-        "title": "Quadruped Control",
-        "description": "Drive the dog controller directly instead of only watching a passive loop.",
+        "title": "Animal",
+        "description": "Control the dog directly or sketch a path across the ground plane.",
         "category": "Interactive",
-        "assetLabel": "Quadruped locomotion",
-        "surfaceLabel": "Keyboard + gamepad",
-        "launchPath": "/play/quadruped",
+        "assetLabel": "Animal locomotion",
+        "surfaceLabel": "Manual + Path",
+        "launchPath": "/play/animal",
     },
 ]
 
@@ -297,13 +297,21 @@ async def _run_active_session(websocket: WebSocket, demo_name: str):
 def mount_interactive_routes(app, session_lock: asyncio.Lock):
     app.mount("/assets/quadruped", StaticFiles(directory=QUADRUPED_ASSETS), name="assets-quadruped")
 
+    @app.get("/play/human")
     @app.get("/play/biped")
     async def play_biped():
-        return FileResponse(CLIENT_DIR / "biped.html")
+        return FileResponse(
+            CLIENT_DIR / "biped.html",
+            headers={"Cache-Control": "no-store, max-age=0"},
+        )
 
+    @app.get("/play/animal")
     @app.get("/play/quadruped")
     async def play_quadruped():
-        return FileResponse(CLIENT_DIR / "quadruped.html")
+        return FileResponse(
+            CLIENT_DIR / "quadruped.html",
+            headers={"Cache-Control": "no-store, max-age=0"},
+        )
 
     @app.websocket("/ws-interactive/{demo_name}")
     async def interactive_socket(websocket: WebSocket, demo_name: str):

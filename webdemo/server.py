@@ -2,12 +2,18 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import json
+import re
 import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 import numpy as np
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from interactive_server import INTERACTIVE_DEMOS, mount_interactive_routes
@@ -23,6 +29,17 @@ GENO_ASSETS = APP_DIR / "Demos" / "_ASSETS_" / "Geno"
 FRAME_DT = 1.0 / 30.0
 MIN_SPEED = 0.25
 MAX_SPEED = 1.75
+RIGGED_MESH_OWNER = "cocktailpeanut"
+RIGGED_MESH_REPO = "rigged_mesh"
+RIGGED_MESH_BRANCH = "main"
+RIGGED_MESH_KINDS = {
+    "human": "Human",
+    "animal": "Animal",
+}
+RIGGED_MESH_CACHE_TTL_SECONDS = 300
+RIGGED_MESH_USER_AGENT = "ai4animationpy-pinokio"
+
+_rigged_mesh_cache = {}
 
 sys.path.insert(0, str(APP_DIR))
 
@@ -357,20 +374,164 @@ def _serialize_demo(demo_id: str):
     }
 
 
+def _rigged_mesh_source_url(kind: str) -> str:
+    return (
+        f"https://github.com/{RIGGED_MESH_OWNER}/{RIGGED_MESH_REPO}"
+        f"/tree/{RIGGED_MESH_BRANCH}/{kind}"
+    )
+
+
+def _rigged_mesh_contents_url(kind: str) -> str:
+    quoted_kind = urllib.parse.quote(kind)
+    return (
+        f"https://api.github.com/repos/{RIGGED_MESH_OWNER}/{RIGGED_MESH_REPO}"
+        f"/contents/{quoted_kind}?ref={urllib.parse.quote(RIGGED_MESH_BRANCH)}"
+    )
+
+
+def _humanize_example_name(file_name: str) -> str:
+    stem = Path(file_name).stem.replace("_", " ").replace("-", " ")
+    stem = re.sub(r"(?<=\D)(?=\d)", " ", stem)
+    return " ".join(part[:1].upper() + part[1:] for part in stem.split())
+
+
+def _read_github_json(url: str):
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": RIGGED_MESH_USER_AGENT,
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=12) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        raise RuntimeError(f"GitHub returned HTTP {error.code}") from error
+    except urllib.error.URLError as error:
+        raise RuntimeError(f"GitHub request failed: {error.reason}") from error
+    except json.JSONDecodeError as error:
+        raise RuntimeError("GitHub returned invalid JSON") from error
+
+
+def _get_rigged_mesh_manifest(kind: str):
+    now = time.monotonic()
+    cached = _rigged_mesh_cache.get(kind)
+    if cached and now - cached["created_at"] < RIGGED_MESH_CACHE_TTL_SECONDS:
+        return cached["payload"]
+
+    entries = _read_github_json(_rigged_mesh_contents_url(kind))
+    if not isinstance(entries, list):
+        raise RuntimeError("GitHub returned an unexpected directory listing")
+
+    items = []
+    for entry in entries:
+        file_name = str(entry.get("name", ""))
+        lower_name = file_name.lower()
+        if entry.get("type") != "file" or not lower_name.endswith((".glb", ".gltf")):
+            continue
+        raw_url = entry.get("download_url")
+        if not raw_url:
+            continue
+        items.append(
+            {
+                "name": _humanize_example_name(file_name),
+                "fileName": file_name,
+                "size": entry.get("size"),
+                "url": f"/api/rigged-mesh/{kind}/{urllib.parse.quote(file_name, safe='')}",
+                "rawUrl": raw_url,
+                "htmlUrl": entry.get("html_url"),
+            }
+        )
+
+    items.sort(key=lambda item: item["name"].lower())
+    payload = {
+        "kind": kind,
+        "label": RIGGED_MESH_KINDS[kind],
+        "sourceUrl": _rigged_mesh_source_url(kind),
+        "items": items,
+    }
+    _rigged_mesh_cache[kind] = {"created_at": now, "payload": payload}
+    return payload
+
+
+def _find_rigged_mesh_item(kind: str, file_name: str):
+    if Path(file_name).name != file_name:
+        raise FileNotFoundError(file_name)
+    manifest = _get_rigged_mesh_manifest(kind)
+    for item in manifest["items"]:
+        if item["fileName"] == file_name:
+            return item
+    raise FileNotFoundError(file_name)
+
+
+def _download_rigged_mesh_file(kind: str, file_name: str):
+    item = _find_rigged_mesh_item(kind, file_name)
+    request = urllib.request.Request(
+        item["rawUrl"],
+        headers={
+            "Accept": "model/gltf-binary,model/gltf+json,*/*",
+            "User-Agent": RIGGED_MESH_USER_AGENT,
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            content_type = response.headers.get_content_type()
+            if content_type == "application/octet-stream":
+                content_type = "model/gltf-binary"
+            return response.read(), content_type
+    except urllib.error.HTTPError as error:
+        raise RuntimeError(f"GitHub returned HTTP {error.code}") from error
+    except urllib.error.URLError as error:
+        raise RuntimeError(f"GitHub download failed: {error.reason}") from error
+
+
+def _validate_rigged_mesh_kind(kind: str):
+    if kind not in RIGGED_MESH_KINDS:
+        raise HTTPException(status_code=404, detail=f"Unknown mesh group '{kind}'.")
+
+
 @app.get("/")
 async def index():
-    return FileResponse(CLIENT_DIR / "index.html")
+    return RedirectResponse(url="/play/human")
+
+
+@app.get("/api/rigged-mesh/{kind}")
+async def rigged_mesh_manifest(kind: str):
+    _validate_rigged_mesh_kind(kind)
+    try:
+        return await asyncio.to_thread(_get_rigged_mesh_manifest, kind)
+    except RuntimeError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+
+@app.get("/api/rigged-mesh/{kind}/{file_name}")
+async def rigged_mesh_file(kind: str, file_name: str):
+    _validate_rigged_mesh_kind(kind)
+    try:
+        content, media_type = await asyncio.to_thread(
+            _download_rigged_mesh_file, kind, file_name
+        )
+    except FileNotFoundError as error:
+        raise HTTPException(status_code=404, detail="Mesh example not found.") from error
+    except RuntimeError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
 
 
 @app.get("/api/manifest")
 async def manifest():
-    menu_demos = INTERACTIVE_DEMOS + [_serialize_demo(demo_id) for demo_id in DEMO_REGISTRY]
+    menu_demos = INTERACTIVE_DEMOS
     return {
-        "title": "Motion Playground",
-        "subtitle": "A calm, local browser surface for trying rigs, motion clips, and quick interaction studies.",
-        "useCase": "Best for casually flipping through assets when you want to see how they feel before opening a heavier workflow.",
-        "sectionCaption": "Pick a demo, orbit around it, and make small adjustments without leaving the browser.",
-        "highlights": ["Local only", f"{len(menu_demos)} demos", "Light + dark"],
+        "title": "AI4AnimationPy Control Lab",
+        "subtitle": "Drive neural human and animal locomotion manually, or switch to path mode and draw routes in the scene.",
+        "useCase": "Best for comparing direct steering with path-following behavior on the local AI4AnimationPy controllers.",
+        "sectionCaption": "Choose a character, then use Manual or Path mode inside the demo.",
+        "highlights": [f"{len(menu_demos)} demos", "Manual + Path", "Local only"],
         "demos": menu_demos,
     }
 

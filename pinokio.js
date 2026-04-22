@@ -1,6 +1,7 @@
 module.exports = {
   version: "7.0",
   title: "AI4AnimationPy",
+  icon: "icon.png",
   description: "Minimal local web playground for AI4AnimationPy character and motion demos",
   menu: (kernel, info) => {
     let installed = info.exists("app") && info.exists("app/env")

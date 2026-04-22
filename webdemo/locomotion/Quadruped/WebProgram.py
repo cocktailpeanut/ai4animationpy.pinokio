@@ -70,6 +70,7 @@ class WebProgram:
         self.AvgInferenceMs = None
 
         self.left_stick = [0.0, 0.0]
+        self.right_stick = [0.0, 0.0]
         self.canter_boost = False
         self.walk_modifier = False
         self.trot_modifier = False
@@ -177,6 +178,7 @@ class WebProgram:
 
     def set_inputs(self, **inp):
         self.left_stick = inp.get("left_stick", [0.0, 0.0])
+        self.right_stick = inp.get("right_stick", [0.0, 0.0])
         self.canter_boost = bool(inp.get("canter_boost", False))
         self.walk_modifier = bool(inp.get("walk_modifier", False))
         self.trot_modifier = bool(inp.get("trot_modifier", False))
@@ -253,6 +255,15 @@ class WebProgram:
         move_direction = (
             Vector3.Zero() if move_vector_length == 0.0 else move_vector / move_vector_length
         )
+        facing_axes = np.asarray(self.right_stick, dtype=np.float32)
+        facing_vector = Vector3.ClampMagnitude(
+            self._apply_deadzone(Vector3.Create(facing_axes[0], 0.0, facing_axes[1]), INPUT_DEADZONE),
+            1.0,
+        )
+        facing_vector_length = Vector3.Length(facing_vector)
+        facing_direction = (
+            Vector3.Zero() if facing_vector_length == 0.0 else facing_vector / facing_vector_length
+        )
 
         if action_pose_active:
             speed = 0.0
@@ -260,7 +271,7 @@ class WebProgram:
             direction = self.Actor.GetRootDirection()
         else:
             velocity = speed * move_direction
-            direction = velocity
+            direction = facing_direction if facing_vector_length > 0.0 else velocity
 
         self._UpdatePIDSpeedHistory(current_speed, target_speed, speed)
 
