@@ -46,6 +46,10 @@ sys.path.insert(0, str(APP_DIR))
 from ai4animation import Actor, AI4Animation, FABRIK, Motion, RootModule, Rotation, Time, Vector3
 
 
+SESSION_REPLACED_CLOSE_CODE = 4001
+SESSION_REPLACED_MESSAGE = "This demo is now active in another window."
+
+
 def _set_no_store_headers(response: Response):
     response.headers["Cache-Control"] = "no-store, max-age=0, must-revalidate"
     response.headers["Pragma"] = "no-cache"
@@ -58,6 +62,107 @@ class NoCacheStaticFiles(StaticFiles):
         return _set_no_store_headers(
             super().file_response(full_path, stat_result, scope, status_code)
         )
+
+
+class SessionManager:
+    def __init__(self):
+        self._run_lock = asyncio.Lock()
+        self._takeover_lock = asyncio.Lock()
+        self._state_lock = asyncio.Lock()
+        self._active_websocket = None
+        self._active_token = None
+        self._active_client_id = ""
+        self._active_started_at = 0
+        self._next_token = 0
+
+    @property
+    def active(self):
+        return self._run_lock.locked()
+
+    async def acquire(self, websocket: WebSocket):
+        client_id, started_at = self._client_info(websocket)
+        async with self._takeover_lock:
+            if not await self._can_take_over(websocket, client_id, started_at):
+                await self._close_rejected(websocket)
+                return None
+            await self._close_active(websocket)
+            await self._run_lock.acquire()
+            async with self._state_lock:
+                self._next_token += 1
+                self._active_token = self._next_token
+                self._active_websocket = websocket
+                self._active_client_id = client_id
+                self._active_started_at = started_at
+                return self._active_token
+
+    def _client_info(self, websocket: WebSocket):
+        client_id = websocket.query_params.get("client_id", "")
+        try:
+            started_at = int(websocket.query_params.get("started_at", "0"))
+        except ValueError:
+            started_at = 0
+        return client_id, max(0, started_at)
+
+    async def _can_take_over(self, websocket: WebSocket, client_id: str, started_at: int):
+        async with self._state_lock:
+            active_websocket = self._active_websocket
+            active_client_id = self._active_client_id
+            active_started_at = self._active_started_at
+        if active_websocket is None or active_websocket is websocket:
+            return True
+        if client_id and client_id == active_client_id:
+            return True
+        if active_started_at and started_at <= active_started_at:
+            return False
+        if not started_at and active_started_at:
+            return False
+        return True
+
+    async def _close_rejected(self, websocket: WebSocket):
+        try:
+            await websocket.send_json(
+                {"type": "replaced", "message": SESSION_REPLACED_MESSAGE}
+            )
+        except Exception:
+            pass
+        try:
+            await websocket.close(
+                code=SESSION_REPLACED_CLOSE_CODE,
+                reason="Newer session is already active",
+            )
+        except Exception:
+            pass
+
+    async def _close_active(self, websocket: WebSocket):
+        async with self._state_lock:
+            active_websocket = self._active_websocket
+        if active_websocket is None or active_websocket is websocket:
+            return
+        try:
+            await active_websocket.send_json(
+                {"type": "replaced", "message": SESSION_REPLACED_MESSAGE}
+            )
+        except Exception:
+            pass
+        try:
+            await active_websocket.close(
+                code=SESSION_REPLACED_CLOSE_CODE,
+                reason="New session started",
+            )
+        except Exception:
+            pass
+
+    async def release(self, websocket: WebSocket, token: int):
+        should_release = False
+        async with self._state_lock:
+            if self._active_token == token and self._active_websocket is websocket:
+                self._active_token = None
+                self._active_websocket = None
+                self._active_client_id = ""
+                self._active_started_at = 0
+                should_release = True
+        if should_release and self._run_lock.locked():
+            self._run_lock.release()
 
 
 def _load_module(name: str, path: Path):
@@ -366,8 +471,8 @@ app.mount(
 )
 app.mount("/assets/geno", StaticFiles(directory=GENO_ASSETS), name="assets-geno")
 
-_session_lock = asyncio.Lock()
-mount_interactive_routes(app, _session_lock)
+_session_manager = SessionManager()
+mount_interactive_routes(app, _session_manager)
 
 
 def _reset_runtime():
@@ -552,7 +657,7 @@ async def manifest():
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "activeSession": _session_lock.locked()}
+    return {"status": "ok", "activeSession": _session_manager.active}
 
 
 async def _receive_inputs(websocket: WebSocket, state: dict):
@@ -583,17 +688,9 @@ async def websocket_endpoint(websocket: WebSocket, demo_id: str):
         await websocket.close()
         return
 
-    if _session_lock.locked():
-        await websocket.send_json(
-            {
-                "type": "busy",
-                "message": "Another viewer session is already active. Close the other tab and try again.",
-            }
-        )
-        await websocket.close()
+    session_token = await _session_manager.acquire(websocket)
+    if session_token is None:
         return
-
-    await _session_lock.acquire()
     state = {
         "paused": False,
         "speed": 1.0,
@@ -646,5 +743,4 @@ async def websocket_endpoint(websocket: WebSocket, demo_id: str):
     except WebSocketDisconnect:
         pass
     finally:
-        if _session_lock.locked():
-            _session_lock.release()
+        await _session_manager.release(websocket, session_token)

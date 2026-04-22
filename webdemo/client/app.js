@@ -5,6 +5,17 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 const THEME_KEY = "ai4animation-theme";
 const STORAGE_FALLBACK_THEME = "dark";
 const FRAME_DELAY_MS = 1000 / 30;
+const SESSION_REPLACED_CLOSE_CODE = 4001;
+const SESSION_REPLACED_MESSAGE = "This demo is now active in another window.";
+const CLIENT_ID_KEY = "ai4animation-viewer-client-id";
+const CLIENT_ID = (() => {
+  const existing = sessionStorage.getItem(CLIENT_ID_KEY);
+  if (existing) return existing;
+  const value = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+  sessionStorage.setItem(CLIENT_ID_KEY, value);
+  return value;
+})();
+const CLIENT_STARTED_AT = Date.now();
 
 const dom = {
   backButton: document.getElementById("back-button"),
@@ -712,8 +723,13 @@ function getControlPayload() {
 }
 
 function openSocket(demoId) {
+  if (state.ws && (state.ws.readyState === WebSocket.CONNECTING || state.ws.readyState === WebSocket.OPEN)) return;
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-  const socket = new WebSocket(`${protocol}://${window.location.host}/ws/${demoId}`);
+  const params = new URLSearchParams({
+    client_id: CLIENT_ID,
+    started_at: `${CLIENT_STARTED_AT}`,
+  });
+  const socket = new WebSocket(`${protocol}://${window.location.host}/ws/${demoId}?${params}`);
 
   socket.addEventListener("open", () => {
     setConnectionState("live", "Live");
@@ -730,6 +746,11 @@ function openSocket(demoId) {
       const message = JSON.parse(event.data);
       if (message.type === "busy") {
         setConnectionState("busy", "Busy");
+        showToast(message.message);
+        return;
+      }
+      if (message.type === "replaced") {
+        setConnectionState("busy", "Moved");
         showToast(message.message);
         return;
       }
@@ -761,6 +782,11 @@ function openSocket(demoId) {
     if (state.wsInputTimer) {
       window.clearInterval(state.wsInputTimer);
       state.wsInputTimer = null;
+    }
+    if (event.code === SESSION_REPLACED_CLOSE_CODE) {
+      setConnectionState("busy", "Moved");
+      showToast(SESSION_REPLACED_MESSAGE);
+      return;
     }
     if (state.currentDemo) {
       const suffix = event.code ? ` ${event.code}` : "";

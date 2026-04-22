@@ -11,6 +11,17 @@ const DEMO = {
 
 const loader = new GLTFLoader();
 const EXAMPLE_KIND = "animal";
+const SESSION_REPLACED_CLOSE_CODE = 4001;
+const SESSION_REPLACED_MESSAGE = "This demo is now active in another window.";
+const CLIENT_ID_KEY = "ai4animation-animal-client-id";
+const CLIENT_ID = (() => {
+    const existing = sessionStorage.getItem(CLIENT_ID_KEY);
+    if (existing) return existing;
+    const value = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+    sessionStorage.setItem(CLIENT_ID_KEY, value);
+    return value;
+})();
+const CLIENT_STARTED_AT = Date.now();
 const CRITICAL_ROLES = [
     "Hips",
     "Spine",
@@ -2327,6 +2338,7 @@ function setSessionState(state) {
         if (ws) ws.close();
     }
     if (state === "busy") stopHeartbeat();
+    if (state === "replaced") stopHeartbeat();
     if (state === "disconnected") stopHeartbeat();
 }
 
@@ -2366,9 +2378,11 @@ function stopHeartbeat() {
     }
 }
 
-function showBusyOverlay(message) {
+function showBusyOverlay(message, title = "Server Busy") {
     const overlay = document.getElementById("busy-overlay");
     if (overlay) {
+        const heading = overlay.querySelector("#busy-box h1");
+        if (heading) heading.textContent = title;
         if (message) {
             const p = overlay.querySelector("#busy-box p");
             if (p) p.textContent = message;
@@ -2383,9 +2397,12 @@ function hideBusyOverlay() {
 }
 
 function connectWebSocket() {
+    if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) return;
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const sid = new URLSearchParams(window.location.search).get("sid") || "";
-    ws = new WebSocket(`${protocol}//${window.location.host}${DEMO.wsPath}?sid=${encodeURIComponent(sid)}`);
+    const params = new URLSearchParams(window.location.search);
+    params.set("client_id", CLIENT_ID);
+    params.set("started_at", `${CLIENT_STARTED_AT}`);
+    ws = new WebSocket(`${protocol}//${window.location.host}${DEMO.wsPath}?${params.toString()}`);
     ws.binaryType = "arraybuffer";
 
     ws.onopen = () => {
@@ -2397,12 +2414,18 @@ function connectWebSocket() {
         startHeartbeat();
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
         const dot = document.getElementById("connection-dot");
         const text = document.getElementById("connection-text");
         if (dot) dot.classList.remove("connected");
         if (text) text.textContent = "Disconnected";
         stopHeartbeat();
+        if (event.code === SESSION_REPLACED_CLOSE_CODE || sessionState === "replaced") {
+            if (text) text.textContent = "Moved";
+            setSessionState("replaced");
+            showBusyOverlay(SESSION_REPLACED_MESSAGE, "Session Moved");
+            return;
+        }
         if (sessionState !== "timeout" && sessionState !== "busy") {
             setSessionState("disconnected");
             setTimeout(connectWebSocket, 3000);
@@ -2437,6 +2460,10 @@ function connectWebSocket() {
                 case "busy":
                     setSessionState("busy");
                     showBusyOverlay(msg.message);
+                    break;
+                case "replaced":
+                    setSessionState("replaced");
+                    showBusyOverlay(msg.message, "Session Moved");
                     break;
                 case "error":
                     break;

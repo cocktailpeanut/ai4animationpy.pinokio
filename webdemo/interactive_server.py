@@ -294,7 +294,7 @@ async def _run_active_session(websocket: WebSocket, demo_name: str):
     await asyncio.gather(receive_inputs(), send_frames())
 
 
-def mount_interactive_routes(app, session_lock: asyncio.Lock):
+def mount_interactive_routes(app, session_manager):
     app.mount("/assets/quadruped", StaticFiles(directory=QUADRUPED_ASSETS), name="assets-quadruped")
 
     @app.get("/play/human")
@@ -320,16 +320,16 @@ def mount_interactive_routes(app, session_lock: asyncio.Lock):
             await websocket.send_json({"type": "error", "message": f"Unknown demo '{demo_name}'."})
             await websocket.close()
             return
-        if session_lock.locked():
-            await websocket.send_json({"type": "busy", "message": "Another demo is already running. Close the other tab and try again."})
-            await websocket.close()
+        session_token = await session_manager.acquire(websocket)
+        if session_token is None:
             return
-        async with session_lock:
+        try:
+            await _run_active_session(websocket, demo_name)
+        except Exception as error:
+            traceback.print_exc()
             try:
-                await _run_active_session(websocket, demo_name)
-            except Exception as error:
-                traceback.print_exc()
-                try:
-                    await websocket.send_json({"type": "error", "message": str(error)})
-                except Exception:
-                    pass
+                await websocket.send_json({"type": "error", "message": str(error)})
+            except Exception:
+                pass
+        finally:
+            await session_manager.release(websocket, session_token)
