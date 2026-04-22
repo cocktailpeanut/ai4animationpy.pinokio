@@ -158,6 +158,10 @@ const _matC = new THREE.Matrix4();
 const _matD = new THREE.Matrix4();
 const _matE = new THREE.Matrix4();
 const _fitPos = new THREE.Vector3();
+const _debugPosA = new THREE.Vector3();
+const _debugPosB = new THREE.Vector3();
+const _debugRootMatrix = new THREE.Matrix4();
+const _debugRootScale = new THREE.Vector3(1, 1, 1);
 const landmarkRaycaster = new THREE.Raycaster();
 const landmarkPointer = new THREE.Vector2();
 const landmarkMarkerGroup = new THREE.Group();
@@ -172,25 +176,14 @@ const rigEditLineMaterial = new THREE.LineBasicMaterial({
     depthTest: false,
 });
 const rigEditLine = new THREE.LineSegments(rigEditLineGeometry, rigEditLineMaterial);
-const rigEditRoles = ["hips", "head", "leftHand", "rightHand", "leftFoot", "rightFoot"];
-const rigEditRoleToBone = {
-    hips: "Hips",
-    head: "Head",
-    leftHand: "LeftHand",
-    rightHand: "RightHand",
-    leftFoot: "LeftFoot",
-    rightFoot: "RightFoot",
-};
+const rigEditPrimaryBones = new Set(["Hips", "Head", "LeftHand", "RightHand", "LeftFoot", "RightFoot"]);
+const rigEditRoles = [...DEMO.boneNames];
+const rigEditRoleToBone = Object.fromEntries(rigEditRoles.map((boneName) => [boneName, boneName]));
 let activeRigHandle = null;
 let rigEditEnabled = false;
-const rigEditPoints = {
-    hips: null,
-    head: null,
-    leftHand: null,
-    rightHand: null,
-    leftFoot: null,
-    rightFoot: null,
-};
+let fittedDebugRestPoints = null;
+let rigEditHasManualPoints = false;
+const rigEditPoints = Object.fromEntries(rigEditRoles.map((boneName) => [boneName, null]));
 const rigDragPlane = new THREE.Plane();
 const rigDragOffset = new THREE.Vector3();
 const rigDragHit = new THREE.Vector3();
@@ -858,8 +851,8 @@ function updateFitUi() {
     const preservedRig = uploadedRigMode === "preserved";
     if (fitHintText) {
         fitHintText.textContent = rigEditEnabled
-            ? "Drag hips, head, hands, and feet directly in the viewport."
-            : "Fit Rig is off. Turn it on to show and drag the rig pins.";
+            ? "Drag any rig node directly in the viewport."
+            : "Fit Rig is off. Turn it on to show and drag the rig nodes.";
     }
     if (fitGuidance) {
         fitGuidance.innerHTML = rigEditEnabled
@@ -997,6 +990,14 @@ function getCanonicalRigHandleMap() {
     return map;
 }
 
+function cloneRigEditPointMap(points) {
+    const clone = {};
+    for (const role of rigEditRoles) {
+        clone[role] = points[role] ? points[role].clone() : null;
+    }
+    return clone;
+}
+
 function getRigEditRootMatrix() {
     return new THREE.Matrix4().compose(
         currentRootPos.clone(),
@@ -1012,32 +1013,29 @@ function getRigEditRootInverseMatrix() {
 function ensureRigEditHandles() {
     if (rigEditJointMap.size) return;
     const palette = {
-        hips: 0xffc86b,
-        head: 0xbfd9ff,
-        leftHand: 0x98f0a4,
-        rightHand: 0xf3a6ff,
-        leftFoot: 0x79f0d0,
-        rightFoot: 0xe7ff79,
+        Hips: 0xffc86b,
+        Head: 0xbfd9ff,
+        LeftHand: 0x98f0a4,
+        RightHand: 0xf3a6ff,
+        LeftFoot: 0x79f0d0,
+        RightFoot: 0xe7ff79,
     };
     rigEditLineGeometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(BONE_PAIRS.length * 2 * 3), 3));
-    const roleByBone = new Map(Object.entries(rigEditRoleToBone).map(([role, bone]) => [bone, role]));
     for (const boneName of DEMO.boneNames) {
-        const role = roleByBone.get(boneName) || null;
+        const isPrimary = rigEditPrimaryBones.has(boneName);
         const joint = new THREE.Mesh(
-            new THREE.SphereGeometry(role ? 0.075 : 0.045, 14, 14),
+            new THREE.SphereGeometry(isPrimary ? 0.075 : 0.055, 14, 14),
             new THREE.MeshBasicMaterial({
-                color: role ? palette[role] : 0xf0d765,
+                color: palette[boneName] || 0xf0d765,
                 depthTest: false,
                 transparent: true,
-                opacity: role ? 1 : 0.92,
+                opacity: isPrimary ? 1 : 0.94,
             })
         );
-        joint.renderOrder = role ? 1003 : 1002;
+        joint.renderOrder = isPrimary ? 1003 : 1002;
         joint.userData.boneName = boneName;
-        if (role) {
-            joint.userData.rigRole = role;
-            rigEditHandleMap.set(role, joint);
-        }
+        joint.userData.rigRole = boneName;
+        rigEditHandleMap.set(boneName, joint);
         rigEditJointMap.set(boneName, joint);
         rigEditGroup.add(joint);
     }
@@ -1046,6 +1044,7 @@ function ensureRigEditHandles() {
 function clearRigEditPoints() {
     for (const role of rigEditRoles) rigEditPoints[role] = null;
     activeRigHandle = null;
+    rigEditHasManualPoints = false;
     rigEditEnabled = false;
     updateRigEditOverlay();
     updateViewportCursor();
@@ -1057,6 +1056,7 @@ function resetRigEditHandles() {
         rigEditPoints[role] = canonicalMap[role] ? canonicalMap[role].clone() : null;
     }
     activeRigHandle = null;
+    rigEditHasManualPoints = false;
     updateRigEditOverlay();
     updateViewportCursor();
 }
@@ -1114,6 +1114,26 @@ function updateRigEditOverlay() {
         joint.visible = !!point;
         if (point) joint.position.copy(point);
     }
+}
+
+function getFittedDebugRestPoints() {
+    if (!uploadedSourceMeshes) return null;
+    if (fittedDebugRestPoints) return fittedDebugRestPoints;
+    return rigEditHasManualPoints ? rigEditPoints : null;
+}
+
+function getDebugBonePosition(boneName, target) {
+    const bone = boneMap[boneName];
+    if (!bone) return null;
+
+    const fittedRestPoints = getFittedDebugRestPoints();
+    const fittedRestPoint = fittedRestPoints?.[boneName];
+    if (fittedRestPoint) {
+        _debugRootMatrix.compose(currentRootPos, currentRootQuat, _debugRootScale);
+        return target.copy(fittedRestPoint).applyMatrix4(_debugRootMatrix);
+    }
+
+    return target.setFromMatrixPosition(bone.matrixWorld);
 }
 
 function getFacingDisplayDirection() {
@@ -1899,6 +1919,7 @@ function clearUploadedBinding({ revokeObjectUrl = false, resetSource = false } =
         uploadedAutoFitMatrix = null;
         fitState = createDefaultFitState();
         activeLandmarkTarget = null;
+        fittedDebugRestPoints = null;
         uploadedLandmarkPoints.head = null;
         uploadedLandmarkPoints.hips = null;
         uploadedLandmarkPoints.leftHand = null;
@@ -1962,6 +1983,8 @@ function applyLandmarkCorrection() {
     uploadedAutoFitMatrix = currentFit.premultiply(correction);
     fitState = createDefaultFitState();
     activeLandmarkTarget = null;
+    fittedDebugRestPoints = null;
+    rigEditHasManualPoints = false;
     uploadedLandmarkPoints.head = null;
     uploadedLandmarkPoints.hips = null;
     uploadedLandmarkPoints.leftHand = null;
@@ -1978,12 +2001,14 @@ function applyRigEditAlignment() {
     const canonicalMap = getCanonicalRigHandleMap();
     const correction = computeSimilarityMatrixFromMaps(rigEditPoints, canonicalMap);
     if (!correction) {
-        setAssetStatus("Drag at least three rig pins before applying", "warn");
+        setAssetStatus("Drag at least three rig nodes before applying", "warn");
         return;
     }
+    fittedDebugRestPoints = cloneRigEditPointMap(rigEditPoints);
     uploadedAutoFitMatrix = correction.multiply(uploadedAutoFitMatrix.clone());
     rebuildUploadedBinding();
     resetRigEditHandles();
+    rigEditHasManualPoints = false;
     rigEditEnabled = false;
     updateFitUi();
     updateViewportCursor();
@@ -1992,6 +2017,8 @@ function applyRigEditAlignment() {
 
 function restoreAutoRigFit() {
     if (!uploadedSourceMeshes) return;
+    fittedDebugRestPoints = null;
+    rigEditHasManualPoints = false;
     uploadedAutoFitMatrix = chooseBestFitMatrix(samplePointsFromMeshes(uploadedSourceMeshes));
     rebuildUploadedBinding();
     resetRigEditHandles();
@@ -2057,6 +2084,8 @@ async function loadUploadedModel(file) {
         uploadedSourceMeshes = bakedMeshes;
         uploadedAutoFitMatrix = chooseBestFitMatrix(samplePointsFromMeshes(bakedMeshes));
         fitState = createDefaultFitState();
+        fittedDebugRestPoints = null;
+        rigEditHasManualPoints = false;
         rigEditEnabled = false;
         updateFitUi();
         activeObjectUrl = objectUrl;
@@ -2456,6 +2485,7 @@ canvas.addEventListener("mousemove", (e) => {
                 .clone()
                 .add(rigDragOffset)
                 .applyMatrix4(getRigEditRootInverseMatrix());
+            rigEditHasManualPoints = true;
             updateRigEditOverlay();
         }
         return;
@@ -2474,7 +2504,7 @@ canvas.addEventListener("mousemove", (e) => {
         const dy = e.clientY - orbitLastY;
         orbitLastX = e.clientX;
         orbitLastY = e.clientY;
-        cameraTheta += dx * 0.008;
+        cameraTheta -= dx * 0.008;
         cameraPhi = THREE.MathUtils.clamp(cameraPhi + dy * 0.006, -1.2, 1.1);
         return;
     }
@@ -2653,19 +2683,19 @@ function renderFrame(alpha) {
         const idxA = skeletonPairEntityIndices[p][0];
         const idxB = skeletonPairEntityIndices[p][1];
         if (idxA >= 0 && idxB >= 0) {
-            const bA = boneMap[entityNames[idxA]];
-            const bB = boneMap[entityNames[idxB]];
-            if (bA && bB) {
-                skelAttr.setXYZ(p * 2, bA.matrixWorld.elements[12], bA.matrixWorld.elements[13], bA.matrixWorld.elements[14]);
-                skelAttr.setXYZ(p * 2 + 1, bB.matrixWorld.elements[12], bB.matrixWorld.elements[13], bB.matrixWorld.elements[14]);
+            const posA = getDebugBonePosition(entityNames[idxA], _debugPosA);
+            const posB = getDebugBonePosition(entityNames[idxB], _debugPosB);
+            if (posA && posB) {
+                skelAttr.setXYZ(p * 2, posA.x, posA.y, posA.z);
+                skelAttr.setXYZ(p * 2 + 1, posB.x, posB.y, posB.z);
             }
         }
     }
     skelAttr.needsUpdate = true;
 
     for (let i = 0; i < entityCount && i < jointSpheres.length; i++) {
-        const bone = boneMap[entityNames[i]];
-        if (bone) jointSpheres[i].position.set(bone.matrixWorld.elements[12], bone.matrixWorld.elements[13], bone.matrixWorld.elements[14]);
+        const pos = getDebugBonePosition(entityNames[i], _debugPosA);
+        if (pos) jointSpheres[i].position.copy(pos);
     }
 
     const cl = ctrlTrajLine.geometry.getAttribute("position");
@@ -2685,9 +2715,9 @@ function renderFrame(alpha) {
     for (let i = 0; i < contactEntityIndices.length; i++) {
         const idx = contactEntityIndices[i];
         if (idx >= 0) {
-            const bone = boneMap[entityNames[idx]];
-            if (bone) {
-                contactSpheres[i].position.set(bone.matrixWorld.elements[12], bone.matrixWorld.elements[13], bone.matrixWorld.elements[14]);
+            const pos = getDebugBonePosition(entityNames[idx], _debugPosA);
+            if (pos) {
+                contactSpheres[i].position.copy(pos);
                 const contact = framePrev ? THREE.MathUtils.lerp(framePrev.contacts[i], frameCurr.contacts[i], alpha) : frameCurr.contacts[i];
                 contactSpheres[i].material.color.setRGB(1 - contact, contact, 0);
             }
@@ -2906,7 +2936,7 @@ if (fitResetButton) {
         rigEditEnabled = true;
         updateFitUi();
         updateViewportCursor();
-        setAssetStatus("Reset rig edit pins", "ok");
+        setAssetStatus("Reset rig edit nodes", "ok");
     });
 }
 
