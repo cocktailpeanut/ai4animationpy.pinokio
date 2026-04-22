@@ -46,6 +46,20 @@ sys.path.insert(0, str(APP_DIR))
 from ai4animation import Actor, AI4Animation, FABRIK, Motion, RootModule, Rotation, Time, Vector3
 
 
+def _set_no_store_headers(response: Response):
+    response.headers["Cache-Control"] = "no-store, max-age=0, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+
+class NoCacheStaticFiles(StaticFiles):
+    def file_response(self, full_path, stat_result, scope, status_code=200):
+        return _set_no_store_headers(
+            super().file_response(full_path, stat_result, scope, status_code)
+        )
+
+
 def _load_module(name: str, path: Path):
     spec = importlib.util.spec_from_file_location(name, str(path))
     if spec is None or spec.loader is None:
@@ -344,7 +358,7 @@ DEMO_REGISTRY = {
 
 
 app = FastAPI()
-app.mount("/client", StaticFiles(directory=CLIENT_DIR), name="client")
+app.mount("/client", NoCacheStaticFiles(directory=CLIENT_DIR), name="client")
 app.mount(
     "/assets/cranberry",
     StaticFiles(directory=CRANBERRY_ASSETS),
