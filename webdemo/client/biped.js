@@ -2447,8 +2447,8 @@ canvas.addEventListener("mousemove", (e) => {
         const dy = e.clientY - orbitLastY;
         orbitLastX = e.clientX;
         orbitLastY = e.clientY;
-        cameraTheta -= dx * 0.008;
-        cameraPhi = THREE.MathUtils.clamp(cameraPhi - dy * 0.006, -1.2, 1.1);
+        cameraTheta += dx * 0.008;
+        cameraPhi = THREE.MathUtils.clamp(cameraPhi + dy * 0.006, -1.2, 1.1);
         return;
     }
     if (!rightMouseDown || controlMode !== "manual") return;

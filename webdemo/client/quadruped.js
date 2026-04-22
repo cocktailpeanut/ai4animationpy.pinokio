@@ -2896,8 +2896,8 @@ canvas.addEventListener("pointermove", (event) => {
     const dy = event.clientY - orbitLastY;
     orbitLastX = event.clientX;
     orbitLastY = event.clientY;
-    cameraTheta -= dx * 0.008;
-    cameraPhi = THREE.MathUtils.clamp(cameraPhi - dy * 0.006, -1.2, 1.1);
+    cameraTheta += dx * 0.008;
+    cameraPhi = THREE.MathUtils.clamp(cameraPhi + dy * 0.006, -1.2, 1.1);
 });
 
 function endOrbitDrag(event) {
