@@ -2506,8 +2506,24 @@ kbd {
 }
 
 @media (min-width: 1101px) {
+  body[data-demo="quadruped"] #demo-tabs,
+  body[data-demo="biped"] #demo-tabs {
+    order: 0;
+  }
+
+  body[data-demo="quadruped"] #asset-dock,
+  body[data-demo="biped"] #asset-dock {
+    order: 1;
+  }
+
+  body[data-demo="quadruped"] #fit-panel,
+  body[data-demo="biped"] #fit-panel {
+    order: 2;
+  }
+
   body[data-demo="quadruped"] #control-mode-panel,
   body[data-demo="biped"] #control-mode-panel {
+    order: 3;
     position: static !important;
     inset: auto !important;
     width: auto !important;
@@ -2520,6 +2536,34 @@ kbd {
     border-radius: 0 !important;
     background: transparent !important;
     box-shadow: none !important;
+  }
+
+  body[data-demo="quadruped"] #overlay,
+  body[data-demo="biped"] #overlay {
+    order: 4;
+  }
+
+  body[data-demo="quadruped"] #speed-overlay {
+    order: 5;
+  }
+
+  body[data-demo="biped"] #style-dock {
+    order: 5;
+  }
+
+  body[data-demo="quadruped"] #input-visualizer,
+  body[data-demo="biped"] #input-visualizer {
+    order: 6;
+  }
+
+  body[data-demo="quadruped"] #controls-help,
+  body[data-demo="biped"] #controls-help {
+    order: 7;
+  }
+
+  body[data-demo="quadruped"] #github-link,
+  body[data-demo="biped"] #github-link {
+    order: 8;
   }
 
   body[data-demo="quadruped"] .mode-panel-title,
