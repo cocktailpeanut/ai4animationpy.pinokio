@@ -151,6 +151,7 @@ let actualToExpectedName = new Map();
 let virtualBones = [];
 let exampleAssets = [];
 let exampleLoadToken = 0;
+let selectedExampleUrl = "";
 let framePrev = null;
 let frameCurr = null;
 let framePrevReceivedAt = 0;
@@ -181,7 +182,7 @@ let activeFacingDrag = false;
 let facingDragButton = null;
 let directionRingVisible = true;
 let rightStick = [0, 0];
-let controlMode = "manual";
+let controlMode = "path";
 let pathActive = false;
 let pathLoop = false;
 let pathDragActive = false;
@@ -291,7 +292,10 @@ const importInput = document.getElementById("import-glb-input");
 const importButton = document.getElementById("import-glb-btn");
 const restoreButton = document.getElementById("restore-dog-btn");
 const assetStatus = document.getElementById("asset-status");
-const exampleSelect = document.getElementById("example-select");
+const examplePicker = document.getElementById("example-picker");
+const exampleButton = document.getElementById("example-picker-button");
+const exampleButtonValue = document.getElementById("example-picker-value");
+const exampleMenu = document.getElementById("example-picker-menu");
 const fitPanel = document.getElementById("fit-panel");
 const fitYawLeftButton = document.getElementById("fit-yaw-left-btn");
 const fitYawRightButton = document.getElementById("fit-yaw-right-btn");
@@ -1908,26 +1912,76 @@ async function loadUploadedModel(file) {
     }
 }
 
+function setExamplePickerLabel(label) {
+    if (exampleButtonValue) exampleButtonValue.textContent = label;
+}
+
+function setExamplePickerDisabled(disabled) {
+    if (exampleButton) exampleButton.disabled = disabled;
+    if (examplePicker) examplePicker.classList.toggle("is-disabled", disabled);
+}
+
+function closeExampleMenu() {
+    if (!examplePicker || !exampleButton || !exampleMenu) return;
+    examplePicker.classList.remove("is-open");
+    exampleButton.setAttribute("aria-expanded", "false");
+    exampleMenu.hidden = true;
+}
+
+function openExampleMenu() {
+    if (!examplePicker || !exampleButton || !exampleMenu || exampleButton.disabled || !exampleAssets.length) return;
+    examplePicker.classList.add("is-open");
+    exampleButton.setAttribute("aria-expanded", "true");
+    exampleMenu.hidden = false;
+}
+
+function focusExampleOption(offset = 0) {
+    if (!exampleMenu) return;
+    const options = Array.from(exampleMenu.querySelectorAll(".example-option"));
+    if (!options.length) return;
+    const activeIndex = options.indexOf(document.activeElement);
+    const nextIndex = activeIndex < 0 ? 0 : (activeIndex + offset + options.length) % options.length;
+    options[nextIndex].focus();
+}
+
+function resetExamplePicker() {
+    selectedExampleUrl = "";
+    setExamplePickerLabel(exampleAssets.length ? "Choose example" : "No examples");
+    closeExampleMenu();
+}
+
 function replaceExampleOptions(label, items = []) {
-    if (!exampleSelect) return;
-    exampleSelect.innerHTML = "";
-    const placeholder = document.createElement("option");
-    placeholder.value = "";
-    placeholder.textContent = label;
-    exampleSelect.appendChild(placeholder);
+    if (!exampleButton || !exampleMenu) return;
+    selectedExampleUrl = "";
+    setExamplePickerLabel(label);
+    exampleMenu.innerHTML = "";
 
     items.forEach((item) => {
-        const option = document.createElement("option");
-        option.value = item.url;
+        const option = document.createElement("button");
+        option.type = "button";
+        option.className = "example-option";
+        option.setAttribute("role", "option");
+        option.setAttribute("aria-selected", "false");
         option.textContent = item.name || item.fileName;
-        exampleSelect.appendChild(option);
+        option.addEventListener("click", async () => {
+            selectedExampleUrl = item.url;
+            setExamplePickerLabel(item.name || item.fileName);
+            for (const sibling of exampleMenu.querySelectorAll(".example-option")) {
+                sibling.classList.toggle("is-selected", sibling === option);
+                sibling.setAttribute("aria-selected", sibling === option ? "true" : "false");
+            }
+            closeExampleMenu();
+            await loadExampleAsset(item);
+        });
+        exampleMenu.appendChild(option);
     });
 
-    exampleSelect.disabled = items.length === 0;
+    setExamplePickerDisabled(items.length === 0);
+    closeExampleMenu();
 }
 
 async function loadExampleManifest() {
-    if (!exampleSelect) return;
+    if (!exampleButton || !exampleMenu) return;
     replaceExampleOptions("Loading examples...");
     try {
         const response = await fetch(`/api/rigged-mesh/${EXAMPLE_KIND}`, { cache: "no-store" });
@@ -1945,7 +1999,7 @@ async function loadExampleManifest() {
 async function loadExampleAsset(example) {
     if (!example) return;
     const token = ++exampleLoadToken;
-    if (exampleSelect) exampleSelect.disabled = true;
+    setExamplePickerDisabled(true);
     setAssetStatus(`Fetching ${example.name || example.fileName}...`, "warn");
     try {
         const response = await fetch(example.url, { cache: "force-cache" });
@@ -1962,8 +2016,8 @@ async function loadExampleAsset(example) {
         setAssetStatus(`${example.name || example.fileName} unavailable`, "error");
         console.error("Failed to load animal mesh example:", error);
     } finally {
-        if (token === exampleLoadToken && exampleSelect) {
-            exampleSelect.disabled = exampleAssets.length === 0;
+        if (token === exampleLoadToken) {
+            setExamplePickerDisabled(exampleAssets.length === 0);
         }
     }
 }
@@ -3020,7 +3074,7 @@ if (importButton && importInput) {
     importInput.addEventListener("change", async (event) => {
         const file = event.target.files && event.target.files[0];
         if (!file) return;
-        if (exampleSelect) exampleSelect.value = "";
+        resetExamplePicker();
         await loadUploadedModel(file);
         importInput.value = "";
     });
@@ -3028,17 +3082,40 @@ if (importButton && importInput) {
 
 if (restoreButton) {
     restoreButton.addEventListener("click", () => {
-        if (exampleSelect) exampleSelect.value = "";
+        resetExamplePicker();
         clearUploadedBinding({ revokeObjectUrl: true, resetSource: true });
         setAssetStatus("Built-in Dog.glb · canonical dog rig ready", "ok");
     });
 }
 
-if (exampleSelect) {
-    exampleSelect.addEventListener("change", async () => {
-        const selectedUrl = exampleSelect.value;
-        const example = exampleAssets.find((item) => item.url === selectedUrl);
-        if (example) await loadExampleAsset(example);
+if (exampleButton && exampleMenu) {
+    exampleButton.addEventListener("click", () => {
+        if (exampleMenu.hidden) openExampleMenu();
+        else closeExampleMenu();
+    });
+    exampleButton.addEventListener("keydown", (event) => {
+        if (event.key !== "ArrowDown" && event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        openExampleMenu();
+        focusExampleOption(0);
+    });
+    exampleMenu.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+            closeExampleMenu();
+            exampleButton.focus();
+            return;
+        }
+        if (event.key === "ArrowDown") {
+            event.preventDefault();
+            focusExampleOption(1);
+        }
+        if (event.key === "ArrowUp") {
+            event.preventDefault();
+            focusExampleOption(-1);
+        }
+    });
+    document.addEventListener("click", (event) => {
+        if (examplePicker && !examplePicker.contains(event.target)) closeExampleMenu();
     });
     loadExampleManifest();
 }
@@ -3172,7 +3249,7 @@ if (pathLoopToggle) {
         updatePathUi();
     });
 }
-setControlMode("manual");
+setControlMode("path");
 
 loadDefaultModel()
     .then(() => connectWebSocket())

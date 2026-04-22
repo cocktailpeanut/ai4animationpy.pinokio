@@ -146,6 +146,7 @@ body {
 
 #asset-examples {
     grid-column: 1 / -1;
+    position: relative;
     display: grid;
     grid-template-columns: 72px minmax(0, 1fr);
     gap: 8px;
@@ -160,8 +161,16 @@ body {
     text-transform: uppercase;
 }
 
-#example-select {
+#example-picker {
+    position: relative;
+    min-width: 0;
+}
+
+#example-picker-button {
     appearance: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     width: 100%;
     min-width: 0;
     height: 32px;
@@ -179,19 +188,71 @@ body {
     transition: background-color 0.14s ease, border-color 0.14s ease;
 }
 
-#example-select:hover:not(:disabled) {
+#example-picker-button:hover:not(:disabled),
+.example-picker.is-open #example-picker-button {
     border-color: rgba(255, 255, 255, 0.2);
     background-color: rgba(250, 252, 255, 0.12);
 }
 
-#example-select:focus-visible {
+#example-picker-button:focus-visible {
     outline: 2px solid rgba(158, 188, 255, 0.72);
     outline-offset: 2px;
 }
 
-#example-select:disabled {
+#example-picker-button:disabled {
     opacity: 0.58;
     cursor: not-allowed;
+}
+
+#example-picker-value {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#example-picker-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    z-index: 90;
+    max-height: min(312px, 54vh);
+    overflow: auto;
+    padding: 4px;
+    border: 1px solid rgba(198, 210, 255, 0.22);
+    border-radius: 8px;
+    background: #34334b;
+    box-shadow: 0 18px 36px rgba(0, 0, 0, 0.34);
+}
+
+.example-option {
+    appearance: none;
+    display: block;
+    width: 100%;
+    min-height: 34px;
+    border: 0;
+    border-radius: 6px;
+    padding: 0 10px;
+    background: transparent;
+    color: rgba(244, 247, 251, 0.9);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+}
+
+.example-option:hover,
+.example-option:focus-visible {
+    outline: none;
+    background: rgba(124, 153, 235, 0.24);
+    color: rgba(255, 255, 255, 0.98);
+}
+
+.example-option.is-selected {
+    background: rgba(124, 153, 235, 0.34);
 }
 
 #import-glb-btn,

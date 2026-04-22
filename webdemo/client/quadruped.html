@@ -28,10 +28,13 @@
                         <button id="restore-dog-btn" class="asset-action-ghost" type="button">Default</button>
                     </div>
                     <div id="asset-examples">
-                        <label id="example-select-label" for="example-select">Examples</label>
-                        <select id="example-select" disabled>
-                            <option value="">Loading examples...</option>
-                        </select>
+                        <div id="example-select-label">Examples</div>
+                        <div id="example-picker" class="example-picker">
+                            <button id="example-picker-button" type="button" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="example-select-label example-picker-value" disabled>
+                                <span id="example-picker-value">Loading examples...</span>
+                            </button>
+                            <div id="example-picker-menu" role="listbox" aria-labelledby="example-select-label" hidden></div>
+                        </div>
                     </div>
                     <input id="import-glb-input" type="file" accept=".glb,model/gltf-binary" hidden>
                 </div>
@@ -40,10 +43,10 @@
                 <div id="control-mode-panel">
                     <div class="mode-panel-title">Control</div>
                     <div class="mode-toggle" role="group" aria-label="Control mode">
-                        <button id="mode-manual-btn" class="active" type="button">Manual</button>
-                        <button id="mode-path-btn" type="button">Path</button>
+                        <button id="mode-manual-btn" type="button">Manual</button>
+                        <button id="mode-path-btn" class="active" type="button">Path</button>
                     </div>
-                    <div id="path-controls" class="hidden">
+                    <div id="path-controls">
                         <div class="path-button-row">
                             <button id="path-play-btn" type="button" disabled>Play</button>
                             <button id="path-clear-btn" type="button" disabled>Clear</button>
@@ -160,6 +163,6 @@
         <div id="joystick-right" class="joystick"><div class="joystick-knob" id="knob-right"></div></div>
     </div>
     <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/" } }</script>
-    <script type="module" src="/client/quadruped.js"></script>
+    <script type="module" src="/client/quadruped.js?v=example-picker-20260422"></script>
 </body>
 </html>
