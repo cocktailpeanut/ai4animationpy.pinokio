@@ -249,6 +249,7 @@ let rigEditEnabled = false;
 let rigEditHasManualPoints = false;
 const rigEditPoints = Object.fromEntries(rigEditRoles.map((boneName) => [boneName, null]));
 const rigEditBasePoints = Object.fromEntries(rigEditRoles.map((boneName) => [boneName, null]));
+const rigEditBaseRootQuats = Object.fromEntries(rigEditRoles.map((boneName) => [boneName, null]));
 const rigEditEditedRoles = new Set();
 const rigEditInputDebug = {
     pointerDowns: 0,
@@ -1154,6 +1155,7 @@ function seedRigEditPointsFromMap(pointMap) {
         const point = pointMap[role] ? pointMap[role].clone() : null;
         rigEditPoints[role] = point;
         rigEditBasePoints[role] = point ? point.clone() : null;
+        rigEditBaseRootQuats[role] = point ? currentRootQuat.clone() : null;
     }
     rigEditEditedRoles.clear();
 }
@@ -1162,22 +1164,56 @@ function hasRigEditPointState() {
     return rigEditRoles.some((role) => rigEditPoints[role] || rigEditBasePoints[role]);
 }
 
+function shouldTrackLiveRigEditSeed() {
+    return uploadedRigMode === "preserved" && !rigEditHasManualPoints;
+}
+
 function buildRigEditDisplayHandleMap({ fillMissingFromLive = false } = {}) {
+    if (shouldTrackLiveRigEditSeed()) {
+        seedRigEditPointsFromMap(getRigEditSeedMap());
+    }
     const seedMap = getRigEditSeedMap();
-    const livePositions = fillMissingFromLive ? getLiveRigHandleMap() : {};
+    const preserveDraftOffsets = uploadedRigMode === "preserved" && rigEditHasManualPoints;
+    const livePositions = (fillMissingFromLive || preserveDraftOffsets) ? getLiveRigHandleMap() : {};
     const editPositions = {};
     for (const role of rigEditRoles) {
+        const livePoint = livePositions[role];
+        if (preserveDraftOffsets && livePoint) {
+            if (rigEditEditedRoles.has(role) && rigEditPoints[role] && rigEditBasePoints[role]) {
+                const baseRootQuat = rigEditBaseRootQuats[role] || currentRootQuat;
+                const offsetLocal = rigEditPoints[role]
+                    .clone()
+                    .sub(rigEditBasePoints[role])
+                    .applyQuaternion(baseRootQuat.clone().invert());
+                const anchoredPoint = livePoint.clone().add(
+                    offsetLocal.applyQuaternion(currentRootQuat)
+                );
+                rigEditPoints[role] = anchoredPoint.clone();
+                rigEditBasePoints[role] = livePoint.clone();
+                rigEditBaseRootQuats[role] = currentRootQuat.clone();
+                editPositions[role] = anchoredPoint;
+                continue;
+            }
+            rigEditPoints[role] = livePoint.clone();
+            rigEditBasePoints[role] = livePoint.clone();
+            rigEditBaseRootQuats[role] = currentRootQuat.clone();
+            editPositions[role] = livePoint.clone();
+            continue;
+        }
         if (!rigEditPoints[role] && seedMap[role]) {
             rigEditPoints[role] = seedMap[role].clone();
+            rigEditBasePoints[role] = seedMap[role].clone();
+            rigEditBaseRootQuats[role] = currentRootQuat.clone();
         }
         if (rigEditPoints[role]) {
             editPositions[role] = rigEditPoints[role].clone();
             continue;
         }
-        const livePoint = livePositions[role];
         if (livePoint) {
             editPositions[role] = livePoint.clone();
             rigEditPoints[role] = livePoint.clone();
+            rigEditBasePoints[role] = livePoint.clone();
+            rigEditBaseRootQuats[role] = currentRootQuat.clone();
         }
     }
     return editPositions;
@@ -1241,6 +1277,7 @@ function clearRigEditPoints() {
     for (const role of rigEditRoles) {
         rigEditPoints[role] = null;
         rigEditBasePoints[role] = null;
+        rigEditBaseRootQuats[role] = null;
     }
     rigEditEditedRoles.clear();
     activeRigHandle = null;
@@ -1263,7 +1300,7 @@ function resetRigEditHandles() {
 function beginSkeletonEdit({ reseed = false } = {}) {
     if (!uploadedSourceMeshes) return false;
     ensureRigEditHandles();
-    if (reseed || !hasRigEditPointState()) {
+    if (reseed || shouldTrackLiveRigEditSeed() || !hasRigEditPointState()) {
         seedRigEditPointsFromMap(getRigEditSeedMap());
     }
     rigEditEnabled = true;
