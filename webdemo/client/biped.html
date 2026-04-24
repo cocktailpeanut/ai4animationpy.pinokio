@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Neural Human Locomotion</title>
     <link rel="icon" href="data:,">
-    <link rel="stylesheet" href="/client/motion.css?v=no-cache-20260422">
+    <link rel="stylesheet" href="../client/motion.css?v=path-prefix-safe-20260423">
 </head>
 <body data-demo="biped">
     <div class="quad-shell">
@@ -15,8 +15,8 @@
             </section>
             <aside class="quad-sidebar">
                 <nav id="demo-tabs" aria-label="Demo">
-                    <a class="demo-tab active" href="/play/human" aria-current="page">Human</a>
-                    <a class="demo-tab" href="/play/animal">Animal</a>
+                    <a class="demo-tab active" href="./human" aria-current="page">Human</a>
+                    <a class="demo-tab" href="./animal">Animal</a>
                 </nav>
                 <div id="asset-dock">
                     <div id="asset-meta">
@@ -50,21 +50,22 @@
                         <div class="path-button-row">
                             <button id="path-play-btn" type="button" disabled>Play</button>
                             <button id="path-clear-btn" type="button" disabled>Clear</button>
-                            <label class="path-loop-toggle"><input id="path-loop-toggle" type="checkbox"> Loop</label>
+                            <label class="path-toggle-chip path-loop-toggle"><input id="path-loop-toggle" type="checkbox"> Loop</label>
+                            <label class="path-toggle-chip path-visibility-toggle"><input id="path-display-toggle" type="checkbox" checked> Show path</label>
                         </div>
                         <div id="path-status">No path points</div>
                     </div>
                 </div>
                 <div id="fit-panel" class="hidden">
                     <div id="fit-panel-header">
-                        <div id="fit-panel-title">Rig Fit</div>
+                        <div id="fit-panel-title">Skeleton Align</div>
                         <button id="fit-reset-btn" type="button">Reset</button>
                     </div>
                     <div class="fit-row fit-row-compact">
                         <div class="fit-row-label">View</div>
                         <div class="fit-button-strip fit-button-strip-wrap">
-                            <button id="fit-skeleton-btn" type="button">Live Skeleton</button>
-                            <button id="fit-edit-btn" type="button">Fit Rig</button>
+                            <button id="fit-skeleton-btn" type="button">Show Skeleton</button>
+                            <button id="fit-edit-btn" type="button">Edit Skeleton</button>
                         </div>
                     </div>
                     <div class="fit-row fit-row-compact">
@@ -130,11 +131,11 @@
                     </label>
                     <div class="fit-row fit-row-compact">
                         <div class="fit-row-label">Pins</div>
-                        <div id="fit-hint-text">Drag hips, head, hands, and feet directly in the viewport.</div>
+                        <div id="fit-hint-text">Drag skeleton joints directly in the viewport.</div>
                     </div>
                     <div class="fit-row fit-row-compact">
                         <div class="fit-row-label">Guide</div>
-                        <div id="fit-guidance">Line the rig up over the body, then click <strong>Apply</strong> to recalibrate the imported model.</div>
+                        <div id="fit-guidance">Line the skeleton up over the body, then click <strong>Apply</strong> to recalibrate the skeleton landmarks.</div>
                     </div>
                 </div>
                 <div id="style-dock">
@@ -150,11 +151,11 @@
             </aside>
         </div>
     </div>
-    <div id="busy-overlay" class="hidden"><div id="busy-box"><h1>Server Busy</h1><p>The server is currently running another demo. Please wait a moment, then reload this demo.</p><hr><p class="overlay-footer"><em>Clone the <a href="https://github.com/facebookresearch/ai4animationpy" target="_blank">GitHub repo</a> to run locally.</em></p><a id="busy-back-link" href="/play/human">Reload Demo</a></div></div>
-    <div id="timeout-overlay" class="hidden"><div id="timeout-box"><h1>Session Expired</h1><p>Your 3-minute session has ended. Thank you for trying the demo!</p><hr><p class="overlay-footer"><em>Clone the <a href="https://github.com/facebookresearch/ai4animationpy" target="_blank">GitHub repo</a> to run locally.</em></p><a id="reload-btn" href="/play/human">Reload Demo</a></div></div>
+    <div id="busy-overlay" class="hidden"><div id="busy-box"><h1>Server Busy</h1><p>The server is currently running another demo. Please wait a moment, then reload this demo.</p><hr><p class="overlay-footer"><em>Clone the <a href="https://github.com/facebookresearch/ai4animationpy" target="_blank">GitHub repo</a> to run locally.</em></p><a id="busy-back-link" href="./human">Reload Demo</a></div></div>
+    <div id="timeout-overlay" class="hidden"><div id="timeout-box"><h1>Session Expired</h1><p>Your 3-minute session has ended. Thank you for trying the demo!</p><hr><p class="overlay-footer"><em>Clone the <a href="https://github.com/facebookresearch/ai4animationpy" target="_blank">GitHub repo</a> to run locally.</em></p><a id="reload-btn" href="./human">Reload Demo</a></div></div>
     <span id="inference-ms" style="display:none;"></span>
     <div id="touch-controls"><div id="joystick-left" class="joystick"><div class="joystick-knob" id="knob-left"></div></div><button id="debug-btn-mobile">Debug</button><div id="joystick-right" class="joystick"><div class="joystick-knob" id="knob-right"></div></div></div>
     <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/" } }</script>
-    <script type="module" src="/client/biped.js?v=orbit-horizontal-20260422"></script>
+    <script type="module" src="../client/biped.js?v=path-prefix-safe-20260423"></script>
 </body>
 </html>

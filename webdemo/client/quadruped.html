@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Neural Animal Locomotion</title>
     <link rel="icon" href="data:,">
-    <link rel="stylesheet" href="/client/motion.css?v=no-cache-20260422">
+    <link rel="stylesheet" href="../client/motion.css?v=path-prefix-safe-20260423">
 </head>
 <body data-demo="quadruped">
     <div class="quad-shell">
@@ -15,8 +15,8 @@
             </section>
             <aside class="quad-sidebar">
                 <nav id="demo-tabs" aria-label="Demo">
-                    <a class="demo-tab" href="/play/human">Human</a>
-                    <a class="demo-tab active" href="/play/animal" aria-current="page">Animal</a>
+                    <a class="demo-tab" href="./human">Human</a>
+                    <a class="demo-tab active" href="./animal" aria-current="page">Animal</a>
                 </nav>
                 <div id="asset-dock">
                     <div id="asset-meta">
@@ -50,7 +50,8 @@
                         <div class="path-button-row">
                             <button id="path-play-btn" type="button" disabled>Play</button>
                             <button id="path-clear-btn" type="button" disabled>Clear</button>
-                            <label class="path-loop-toggle"><input id="path-loop-toggle" type="checkbox"> Loop</label>
+                            <label class="path-toggle-chip path-loop-toggle"><input id="path-loop-toggle" type="checkbox"> Loop</label>
+                            <label class="path-toggle-chip path-visibility-toggle"><input id="path-display-toggle" type="checkbox" checked> Show path</label>
                         </div>
                         <div id="path-status">No path points</div>
                     </div>
@@ -151,8 +152,8 @@
             </aside>
         </div>
     </div>
-    <div id="busy-overlay" class="hidden"><div id="busy-box"><h1>Server Busy</h1><p>The server is currently running another demo. Please wait a moment, then reload this demo.</p><hr><p class="overlay-footer"><em>Clone the <a href="https://github.com/facebookresearch/ai4animationpy" target="_blank">GitHub repo</a> to run locally.</em></p><a id="busy-back-link" href="/play/animal">Reload Demo</a></div></div>
-    <div id="timeout-overlay" class="hidden"><div id="timeout-box"><h1>Session Expired</h1><p>Your 3-minute session has ended. Thank you for trying the demo!</p><hr><p class="overlay-footer"><em>Clone the <a href="https://github.com/facebookresearch/ai4animationpy" target="_blank">GitHub repo</a> to run locally.</em></p><a id="reload-btn" href="/play/animal">Reload Demo</a></div></div>
+    <div id="busy-overlay" class="hidden"><div id="busy-box"><h1>Server Busy</h1><p>The server is currently running another demo. Please wait a moment, then reload this demo.</p><hr><p class="overlay-footer"><em>Clone the <a href="https://github.com/facebookresearch/ai4animationpy" target="_blank">GitHub repo</a> to run locally.</em></p><a id="busy-back-link" href="./animal">Reload Demo</a></div></div>
+    <div id="timeout-overlay" class="hidden"><div id="timeout-box"><h1>Session Expired</h1><p>Your 3-minute session has ended. Thank you for trying the demo!</p><hr><p class="overlay-footer"><em>Clone the <a href="https://github.com/facebookresearch/ai4animationpy" target="_blank">GitHub repo</a> to run locally.</em></p><a id="reload-btn" href="./animal">Reload Demo</a></div></div>
     <div class="hidden"><span id="inference-ms"></span></div>
     <div id="touch-controls">
         <div id="joystick-left" class="joystick"><div class="joystick-knob" id="knob-left"></div></div>
@@ -163,6 +164,6 @@
         <div id="joystick-right" class="joystick"><div class="joystick-knob" id="knob-right"></div></div>
     </div>
     <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/" } }</script>
-    <script type="module" src="/client/quadruped.js?v=orbit-horizontal-20260422"></script>
+    <script type="module" src="../client/quadruped.js?v=path-prefix-safe-20260423"></script>
 </body>
 </html>

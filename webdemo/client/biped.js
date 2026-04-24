@@ -27,11 +27,33 @@ const DEMO = {
 
 const loader = new GLTFLoader();
 const textureLoader = new THREE.TextureLoader();
+const APP_BASE_URL = new URL("../", import.meta.url);
+
+function resolveAppUrl(path) {
+    if (!path) return "";
+    if (/^[a-z][a-z\d+.-]*:/i.test(path) || path.startsWith("//")) return path;
+    const normalizedPath = path.startsWith("/") ? `.${path}` : path;
+    return new URL(normalizedPath, APP_BASE_URL).toString();
+}
+
+function createWebSocketUrl(path, params) {
+    const url = new URL(resolveAppUrl(path));
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    url.search = params.toString();
+    return url.toString();
+}
 
 const BONE_NAMES = DEMO.boneNames;
 const TRAJ_SAMPLES = 16;
 const CONTACT_BONE_INDICES = DEMO.contactBoneIndices;
+const CONTACT_BONE_NAMES = CONTACT_BONE_INDICES.map((idx) => BONE_NAMES[idx]);
 const BONE_PAIRS = DEMO.bonePairs;
+const BONE_PARENT_BY_NAME = {};
+for (const [parentIndex, childIndex] of BONE_PAIRS) {
+    const parentName = BONE_NAMES[parentIndex];
+    const childName = BONE_NAMES[childIndex];
+    BONE_PARENT_BY_NAME[childName] = parentName;
+}
 const HEARTBEAT_INTERVAL = 10000;
 const SESSION_REPLACED_CLOSE_CODE = 4001;
 const SESSION_REPLACED_MESSAGE = "This demo is now active in another window.";
@@ -67,7 +89,9 @@ let canonicalSkeleton = null;
 let canonicalSegments = [];
 let canonicalBounds = null;
 let canonicalAnchorPoints = [];
+const canonicalRestByRole = {};
 const canonicalRestInverseByRole = {};
+const canonicalLocalRestByRole = {};
 let uploadedGroup = null;
 let uploadedSourceMeshes = null;
 let uploadedAutoFitMatrix = null;
@@ -76,7 +100,16 @@ let uploadedRigRoot = null;
 let uploadedRigSkeleton = null;
 let uploadedRigBones = [];
 let uploadedRigRestWorldByBone = new Map();
+let uploadedRigRestLocalByBone = new Map();
+let uploadedRigOriginalRestWorldByBone = new Map();
+let uploadedRigOriginalRestLocalByBone = new Map();
+let uploadedRigOriginalBoneInverses = [];
+let uploadedRigRestParentWorldByBone = new Map();
 let uploadedRigRetargetPairs = [];
+let uploadedRigDriverBoneByName = new Map();
+let uploadedRigContactLocalByName = new Map();
+let uploadedRigHandleLocalByName = new Map();
+let uploadedRigEditedHandleRoles = new Set();
 let activeLandmarkTarget = null;
 const uploadedLandmarkPoints = { head: null, hips: null, leftHand: null, rightHand: null };
 let activeObjectUrl = null;
@@ -113,6 +146,7 @@ let rightStick = [0, 0];
 let controlMode = "path";
 let pathActive = false;
 let pathLoop = false;
+let pathDisplayVisible = true;
 let pathDragActive = false;
 let pathWaypointIndex = 0;
 const pathWaypoints = [];
@@ -152,22 +186,46 @@ const _interpScl = new THREE.Vector3();
 const _interpVec = new THREE.Vector3();
 const _interpDir = new THREE.Vector3();
 const _tmpDir = new THREE.Vector3();
+const _sourceParentInverse = new THREE.Matrix4();
+const _sourceLocalAnimated = new THREE.Matrix4();
 const _matA = new THREE.Matrix4();
 const _matB = new THREE.Matrix4();
 const _matC = new THREE.Matrix4();
 const _matD = new THREE.Matrix4();
 const _matE = new THREE.Matrix4();
+const _matF = new THREE.Matrix4();
+const _matG = new THREE.Matrix4();
 const _fitPos = new THREE.Vector3();
 const _debugPosA = new THREE.Vector3();
 const _debugPosB = new THREE.Vector3();
-const _debugRootMatrix = new THREE.Matrix4();
-const _debugRootScale = new THREE.Vector3(1, 1, 1);
+const _skinVertex = new THREE.Vector3();
+const _skinWorld = new THREE.Vector3();
+const _sourceLocalPos = new THREE.Vector3();
+const _sourceLocalQuat = new THREE.Quaternion();
+const _sourceLocalScale = new THREE.Vector3();
+const _sourceRestLocalPos = new THREE.Vector3();
+const _sourceRestLocalQuat = new THREE.Quaternion();
+const _sourceRestLocalScale = new THREE.Vector3();
+const _sourceRestLocalInvQuat = new THREE.Quaternion();
+const _targetRestLocalPos = new THREE.Vector3();
+const _targetRestLocalQuat = new THREE.Quaternion();
+const _targetRestLocalScale = new THREE.Vector3();
+const _targetLocalQuat = new THREE.Quaternion();
+const _targetDeltaQuat = new THREE.Quaternion();
+const _zeroVec = new THREE.Vector3();
+const _desiredHandleWorld = new THREE.Vector3();
+const _handleParentLocal = new THREE.Vector3();
+const _offsetParentLocal = new THREE.Vector3();
 const landmarkRaycaster = new THREE.Raycaster();
 const landmarkPointer = new THREE.Vector2();
 const landmarkMarkerGroup = new THREE.Group();
 const rigEditGroup = new THREE.Group();
 const rigEditHandleMap = new Map();
 const rigEditJointMap = new Map();
+const rigEditVisibleRadius = { primary: 0.015, secondary: 0.015 };
+const rigEditPickRadius = { primary: 0.095, secondary: 0.07 };
+const rigEditScreenPickRadius = { joint: 72, segment: 48 };
+const rigEditVisibleScreenPickRadius = { joint: 64, segment: 42 };
 const rigEditLineGeometry = new THREE.BufferGeometry();
 const rigEditLineMaterial = new THREE.LineBasicMaterial({
     color: 0xe6e8f2,
@@ -178,16 +236,44 @@ const rigEditLineMaterial = new THREE.LineBasicMaterial({
 const rigEditLine = new THREE.LineSegments(rigEditLineGeometry, rigEditLineMaterial);
 const rigEditPrimaryBones = new Set(["Hips", "Head", "LeftHand", "RightHand", "LeftFoot", "RightFoot"]);
 const rigEditRoles = [...DEMO.boneNames];
+const rigEditRoleSet = new Set(rigEditRoles);
 const rigEditRoleToBone = Object.fromEntries(rigEditRoles.map((boneName) => [boneName, boneName]));
+const rigEditLinkedDragRoles = {
+    LeftFoot: ["LeftFoot", "LeftToeBase"],
+    RightFoot: ["RightFoot", "RightToeBase"],
+};
 let activeRigHandle = null;
+let rigEditPointerId = null;
 let rigEditEnabled = false;
-let fittedDebugRestPoints = null;
 let rigEditHasManualPoints = false;
 const rigEditPoints = Object.fromEntries(rigEditRoles.map((boneName) => [boneName, null]));
+const rigEditBasePoints = Object.fromEntries(rigEditRoles.map((boneName) => [boneName, null]));
+const rigEditEditedRoles = new Set();
+const rigEditInputDebug = {
+    pointerDowns: 0,
+    pointerMoves: 0,
+    pointerUps: 0,
+    mouseDowns: 0,
+    mouseMoves: 0,
+    mouseUps: 0,
+    dragUpdates: 0,
+    lastEvent: null,
+    lastSource: null,
+    lastPickedRole: null,
+    lastPickMethod: null,
+    lastPickDistance: null,
+    lastActiveRole: null,
+    lastBlockedReason: null,
+    lastClientX: null,
+    lastClientY: null,
+};
 const rigDragPlane = new THREE.Plane();
 const rigDragOffset = new THREE.Vector3();
 const rigDragHit = new THREE.Vector3();
 const rigDragNormal = new THREE.Vector3();
+const rigDragStartScenePoint = new THREE.Vector3();
+let rigDragStartPointsByRole = new Map();
+let rigDragLinkedRoles = [];
 const facingGizmoGroup = new THREE.Group();
 const facingLineGeometry = new THREE.BufferGeometry();
 const facingLineMaterial = new THREE.LineBasicMaterial({
@@ -262,6 +348,7 @@ const pathControls = document.getElementById("path-controls");
 const pathPlayButton = document.getElementById("path-play-btn");
 const pathClearButton = document.getElementById("path-clear-btn");
 const pathLoopToggle = document.getElementById("path-loop-toggle");
+const pathDisplayToggle = document.getElementById("path-display-toggle");
 const pathStatus = document.getElementById("path-status");
 
 if (importButton) importButton.textContent = "Import GLB";
@@ -462,6 +549,54 @@ function interpolateTransform(a, b, alpha, outPos, outQuat, outScale) {
     outPos.lerpVectors(_prevPos, _currPos, alpha);
     outQuat.slerpQuaternions(_prevQuat, _currQuat, alpha);
     outScale.lerpVectors(_prevScl, _currScl, alpha);
+}
+
+function clearMatrixMap(map) {
+    for (const key of Object.keys(map)) delete map[key];
+}
+
+function rebuildCanonicalLocalRest() {
+    clearMatrixMap(canonicalLocalRestByRole);
+    for (const name of BONE_NAMES) {
+        const rest = canonicalRestByRole[name];
+        if (!rest) continue;
+        const parentName = BONE_PARENT_BY_NAME[name];
+        const parentRest = parentName ? canonicalRestByRole[parentName] : null;
+        const localRest = parentRest
+            ? parentRest.clone().invert().multiply(rest)
+            : rest.clone();
+        canonicalLocalRestByRole[name] = localRest;
+    }
+}
+
+function resetActiveTargetRest() {
+    activeTargetRestByRole = {};
+    for (const [name, matrix] of Object.entries(canonicalRestByRole)) {
+        activeTargetRestByRole[name] = matrix.clone();
+    }
+}
+
+function cloneMatrixMap(map) {
+    const clone = new Map();
+    for (const [key, matrix] of map) clone.set(key, matrix.clone());
+    return clone;
+}
+
+function maxMatrixAbsDelta(a, b) {
+    if (!a || !b) return Infinity;
+    let maxDelta = 0;
+    for (let index = 0; index < 16; index++) {
+        maxDelta = Math.max(maxDelta, Math.abs(a.elements[index] - b.elements[index]));
+    }
+    return maxDelta;
+}
+
+function cloneMatrixWithPosition(matrix, position) {
+    const currentPosition = new THREE.Vector3();
+    const currentRotation = new THREE.Quaternion();
+    const currentScale = new THREE.Vector3();
+    matrix.decompose(currentPosition, currentRotation, currentScale);
+    return new THREE.Matrix4().compose(position.clone(), currentRotation, currentScale);
 }
 
 function applyFrame(alpha) {
@@ -698,11 +833,10 @@ function hideBusyOverlay() {
 
 function connectWebSocket() {
     if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) return;
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const params = new URLSearchParams(window.location.search);
     params.set("client_id", CLIENT_ID);
     params.set("started_at", `${CLIENT_STARTED_AT}`);
-    ws = new WebSocket(`${protocol}//${window.location.host}${DEMO.wsPath}?${params.toString()}`);
+    ws = new WebSocket(createWebSocketUrl(DEMO.wsPath, params));
     ws.binaryType = "arraybuffer";
     ws.onopen = () => {
         const dot = document.getElementById("connection-dot");
@@ -798,6 +932,7 @@ function createJointSpheres() {
     for (let i = 0; i < entityCount; i++) {
         const s = new THREE.Mesh(new THREE.SphereGeometry(0.015, 6, 6), new THREE.MeshBasicMaterial({ color: 0xffaa00, depthTest: false }));
         s.renderOrder = 999;
+        s.userData.entityIndex = i;
         jointSpheres.push(s);
         debugGroup.add(s);
     }
@@ -844,24 +979,24 @@ function updateFitUi() {
     if (fitPanel) fitPanel.classList.toggle("hidden", !active);
     updateLandmarkButtons();
     updateRigEditOverlay();
-    if (fitSkeletonButton) fitSkeletonButton.classList.toggle("active", !!debugEnabled);
+    if (fitSkeletonButton) fitSkeletonButton.classList.toggle("active", !!debugEnabled || rigEditEnabled);
     if (fitEditButton) fitEditButton.classList.toggle("active", rigEditEnabled);
     const fitHintText = document.getElementById("fit-hint-text");
     const fitGuidance = document.getElementById("fit-guidance");
     const preservedRig = uploadedRigMode === "preserved";
     if (fitHintText) {
         fitHintText.textContent = rigEditEnabled
-            ? "Drag any rig node directly in the viewport."
-            : "Fit Rig is off. Turn it on to show and drag the rig nodes.";
+            ? "Drag any skeleton joint or line directly in the viewport."
+            : "Click a visible skeleton joint or line, or use Edit Skeleton.";
     }
     if (fitGuidance) {
         fitGuidance.innerHTML = rigEditEnabled
             ? (preservedRig
-                ? "Line the ghost rig up over the body, then click <strong>Apply</strong> to recalibrate retargeting onto the preserved rig."
-                : "Line the ghost rig up over the body, then click <strong>Apply</strong> to rebuild the bind.")
+                ? "Line the skeleton up over the uploaded body, then click <strong>Apply</strong> to recalibrate the preserved skeleton landmarks."
+                : "Line the skeleton up over the body, then click <strong>Apply</strong> to rebuild the canonical fallback bind.")
             : (preservedRig
-                ? "The editable fit rig is hidden. Use <strong>Fit Rig</strong> to show it, or <strong>Auto</strong> to re-run the preserved-rig calibration."
-                : "The editable fit rig is hidden. Use <strong>Fit Rig</strong> to show it, or <strong>Auto</strong> to re-run the automatic fit.");
+                ? "Show the skeleton, then drag a joint directly or use <strong>Edit Skeleton</strong>."
+                : "Show the skeleton, then drag a joint directly or use <strong>Edit Skeleton</strong>.");
     }
     if (!active) return;
     if (fitYawInput) fitYawInput.value = fitState.yawDegrees.toFixed(0);
@@ -918,69 +1053,6 @@ function rebuildLandmarkMarkers() {
     updateLandmarkButtons();
 }
 
-function computeSimilarityMatrixFromMaps(sourceMap, targetMap) {
-    const roles = rigEditRoles.filter((role) => sourceMap[role] && targetMap[role]);
-    if (roles.length < 3) return new THREE.Matrix4();
-
-    const srcCentroid = new THREE.Vector3();
-    const dstCentroid = new THREE.Vector3();
-    for (const role of roles) {
-        srcCentroid.add(sourceMap[role]);
-        dstCentroid.add(targetMap[role]);
-    }
-    srcCentroid.multiplyScalar(1 / roles.length);
-    dstCentroid.multiplyScalar(1 / roles.length);
-
-    let sxx = 0; let sxy = 0; let sxz = 0;
-    let syx = 0; let syy = 0; let syz = 0;
-    let szx = 0; let szy = 0; let szz = 0;
-    let denom = 0;
-
-    for (const role of roles) {
-        const src = sourceMap[role].clone().sub(srcCentroid);
-        const dst = targetMap[role].clone().sub(dstCentroid);
-        sxx += src.x * dst.x; sxy += src.x * dst.y; sxz += src.x * dst.z;
-        syx += src.y * dst.x; syy += src.y * dst.y; syz += src.y * dst.z;
-        szx += src.z * dst.x; szy += src.z * dst.y; szz += src.z * dst.z;
-        denom += src.lengthSq();
-    }
-    if (denom < 1e-6) return new THREE.Matrix4();
-
-    const n = [
-        [sxx + syy + szz, syz - szy, szx - sxz, sxy - syx],
-        [syz - szy, sxx - syy - szz, sxy + syx, szx + sxz],
-        [szx - sxz, sxy + syx, -sxx + syy - szz, syz + szy],
-        [sxy - syx, szx + sxz, syz + szy, -sxx - syy + szz],
-    ];
-    let q = [1, 0, 0, 0];
-    for (let iter = 0; iter < 16; iter++) {
-        const next = [
-            n[0][0] * q[0] + n[0][1] * q[1] + n[0][2] * q[2] + n[0][3] * q[3],
-            n[1][0] * q[0] + n[1][1] * q[1] + n[1][2] * q[2] + n[1][3] * q[3],
-            n[2][0] * q[0] + n[2][1] * q[1] + n[2][2] * q[2] + n[2][3] * q[3],
-            n[3][0] * q[0] + n[3][1] * q[1] + n[3][2] * q[2] + n[3][3] * q[3],
-        ];
-        const length = Math.hypot(next[0], next[1], next[2], next[3]) || 1;
-        q = next.map((value) => value / length);
-    }
-    const rotation = new THREE.Quaternion(q[1], q[2], q[3], q[0]).normalize();
-
-    let numerator = 0;
-    for (const role of roles) {
-        const src = sourceMap[role].clone().sub(srcCentroid).applyQuaternion(rotation);
-        const dst = targetMap[role].clone().sub(dstCentroid);
-        numerator += dst.dot(src);
-    }
-    const scale = Math.max(0.01, numerator / denom || 1);
-    const rotatedCentroid = srcCentroid.clone().applyQuaternion(rotation).multiplyScalar(scale);
-    const translation = dstCentroid.clone().sub(rotatedCentroid);
-
-    return new THREE.Matrix4()
-        .makeTranslation(translation.x, translation.y, translation.z)
-        .multiply(new THREE.Matrix4().makeRotationFromQuaternion(rotation))
-        .multiply(new THREE.Matrix4().makeScale(scale, scale, scale));
-}
-
 function getCanonicalRigHandleMap() {
     const map = {};
     for (const [role, boneName] of Object.entries(rigEditRoleToBone)) {
@@ -990,24 +1062,132 @@ function getCanonicalRigHandleMap() {
     return map;
 }
 
-function cloneRigEditPointMap(points) {
-    const clone = {};
-    for (const role of rigEditRoles) {
-        clone[role] = points[role] ? points[role].clone() : null;
+function buildUploadedRestWorldByBoneFromLocal(localMap = uploadedRigRestLocalByBone) {
+    const worldByBone = new Map();
+    const sortedBones = [...uploadedRigBones].sort((a, b) => getBoneDepth(a) - getBoneDepth(b));
+    for (const bone of sortedBones) {
+        const local = localMap.get(bone);
+        if (!local) continue;
+        const parent = bone.parent;
+        const parentWorld = parent?.isBone
+            ? (worldByBone.get(parent) || uploadedRigRestWorldByBone.get(parent))
+            : uploadedRigRestParentWorldByBone.get(bone);
+        worldByBone.set(bone, parentWorld ? parentWorld.clone().multiply(local) : local.clone());
     }
-    return clone;
+    return worldByBone;
 }
 
-function getRigEditRootMatrix() {
-    return new THREE.Matrix4().compose(
-        currentRootPos.clone(),
-        currentRootQuat.clone(),
-        new THREE.Vector3(1, 1, 1)
-    );
+function clearRigDragTracking() {
+    rigDragStartPointsByRole = new Map();
+    rigDragLinkedRoles = [];
 }
 
-function getRigEditRootInverseMatrix() {
-    return getRigEditRootMatrix().invert();
+function getRigEditDragRoles(role) {
+    return rigEditLinkedDragRoles[role] || [role];
+}
+
+function beginRigEditDrag(role, startScenePoint) {
+    clearRigDragTracking();
+    rigDragStartScenePoint.copy(startScenePoint);
+    rigDragLinkedRoles = getRigEditDragRoles(role).filter((candidate) => rigEditRoles.includes(candidate));
+    const seedMap = getRigEditSeedMap();
+    const liveMap = getLiveRigHandleMap();
+    for (const linkedRole of rigDragLinkedRoles) {
+        if (!rigEditPoints[linkedRole] && liveMap[linkedRole]) {
+            rigEditPoints[linkedRole] = liveMap[linkedRole].clone();
+        }
+        if (!rigEditPoints[linkedRole] && seedMap[linkedRole]) {
+            rigEditPoints[linkedRole] = seedMap[linkedRole].clone();
+        }
+        if (rigEditPoints[linkedRole]) {
+            rigDragStartPointsByRole.set(linkedRole, rigEditPoints[linkedRole].clone());
+        }
+    }
+    return rigDragStartPointsByRole.size > 0;
+}
+
+function updateRigEditDrag(role, desiredWorldPosition) {
+    if (!desiredWorldPosition) return false;
+    if (!rigDragLinkedRoles.length || !rigDragStartPointsByRole.size) {
+        beginRigEditDrag(role, desiredWorldPosition);
+    }
+    if (!rigDragLinkedRoles.length || !rigDragStartPointsByRole.size) return false;
+    const delta = desiredWorldPosition.clone().sub(rigDragStartScenePoint);
+    for (const linkedRole of rigDragLinkedRoles) {
+        const startPoint = rigDragStartPointsByRole.get(linkedRole);
+        if (startPoint) {
+            rigEditPoints[linkedRole] = startPoint.clone().add(delta);
+            rigEditEditedRoles.add(linkedRole);
+        }
+    }
+    return true;
+}
+
+function getPreservedRigRestHandleMap() {
+    const map = {};
+    if (!uploadedAutoFitMatrix || !uploadedRigBones.length) return map;
+    const fitMatrix = uploadedAutoFitMatrix.clone().premultiply(buildUserFitMatrix());
+    const restWorldByBone = buildUploadedRestWorldByBoneFromLocal();
+    for (const role of rigEditRoles) {
+        map[role] = getUploadedRigHandlePosition(role, new THREE.Vector3(), { restWorldByBone, fitMatrix });
+    }
+    return map;
+}
+
+function getLiveRigHandleMap() {
+    const map = {};
+    for (const role of rigEditRoles) {
+        const point = getRigHandlePosition(role, new THREE.Vector3());
+        map[role] = point ? point.clone() : null;
+    }
+    return map;
+}
+
+function getRigEditSeedMap() {
+    return uploadedRigMode === "preserved" ? getLiveRigHandleMap() : getCanonicalRigHandleMap();
+}
+
+function seedRigEditPointsFromMap(pointMap) {
+    for (const role of rigEditRoles) {
+        const point = pointMap[role] ? pointMap[role].clone() : null;
+        rigEditPoints[role] = point;
+        rigEditBasePoints[role] = point ? point.clone() : null;
+    }
+    rigEditEditedRoles.clear();
+}
+
+function hasRigEditPointState() {
+    return rigEditRoles.some((role) => rigEditPoints[role] || rigEditBasePoints[role]);
+}
+
+function buildRigEditDisplayHandleMap({ fillMissingFromLive = false } = {}) {
+    const seedMap = getRigEditSeedMap();
+    const livePositions = fillMissingFromLive ? getLiveRigHandleMap() : {};
+    const editPositions = {};
+    for (const role of rigEditRoles) {
+        if (!rigEditPoints[role] && seedMap[role]) {
+            rigEditPoints[role] = seedMap[role].clone();
+        }
+        if (rigEditPoints[role]) {
+            editPositions[role] = rigEditPoints[role].clone();
+            continue;
+        }
+        const livePoint = livePositions[role];
+        if (livePoint) {
+            editPositions[role] = livePoint.clone();
+            rigEditPoints[role] = livePoint.clone();
+        }
+    }
+    return editPositions;
+}
+
+function getVisibleSkeletonHandleMap() {
+    if (uploadedRigMode !== "preserved" || !uploadedSourceMeshes) return null;
+    return getLiveRigHandleMap();
+}
+
+function isUploadedSkeletonDebugOverlayActive() {
+    return !!debugEnabled && uploadedRigMode === "preserved" && !!uploadedSourceMeshes;
 }
 
 function ensureRigEditHandles() {
@@ -1024,7 +1204,7 @@ function ensureRigEditHandles() {
     for (const boneName of DEMO.boneNames) {
         const isPrimary = rigEditPrimaryBones.has(boneName);
         const joint = new THREE.Mesh(
-            new THREE.SphereGeometry(isPrimary ? 0.075 : 0.055, 14, 14),
+            new THREE.SphereGeometry(isPrimary ? rigEditVisibleRadius.primary : rigEditVisibleRadius.secondary, 8, 8),
             new THREE.MeshBasicMaterial({
                 color: palette[boneName] || 0xf0d765,
                 depthTest: false,
@@ -1035,15 +1215,34 @@ function ensureRigEditHandles() {
         joint.renderOrder = isPrimary ? 1003 : 1002;
         joint.userData.boneName = boneName;
         joint.userData.rigRole = boneName;
-        rigEditHandleMap.set(boneName, joint);
+        const pickJoint = new THREE.Mesh(
+            new THREE.SphereGeometry(isPrimary ? rigEditPickRadius.primary : rigEditPickRadius.secondary, 10, 10),
+            new THREE.MeshBasicMaterial({
+                color: 0xffffff,
+                depthTest: false,
+                depthWrite: false,
+                transparent: true,
+                opacity: 0,
+            })
+        );
+        pickJoint.renderOrder = 1004;
+        pickJoint.userData.boneName = boneName;
+        pickJoint.userData.rigRole = boneName;
+        rigEditHandleMap.set(boneName, pickJoint);
         rigEditJointMap.set(boneName, joint);
         rigEditGroup.add(joint);
+        rigEditGroup.add(pickJoint);
     }
 }
 
 function clearRigEditPoints() {
-    for (const role of rigEditRoles) rigEditPoints[role] = null;
+    for (const role of rigEditRoles) {
+        rigEditPoints[role] = null;
+        rigEditBasePoints[role] = null;
+    }
+    rigEditEditedRoles.clear();
     activeRigHandle = null;
+    clearRigDragTracking();
     rigEditHasManualPoints = false;
     rigEditEnabled = false;
     updateRigEditOverlay();
@@ -1051,52 +1250,43 @@ function clearRigEditPoints() {
 }
 
 function resetRigEditHandles() {
-    const canonicalMap = getCanonicalRigHandleMap();
-    for (const role of rigEditRoles) {
-        rigEditPoints[role] = canonicalMap[role] ? canonicalMap[role].clone() : null;
-    }
+    seedRigEditPointsFromMap(getRigEditSeedMap());
     activeRigHandle = null;
+    clearRigDragTracking();
     rigEditHasManualPoints = false;
     updateRigEditOverlay();
     updateViewportCursor();
 }
 
+function beginSkeletonEdit({ reseed = false } = {}) {
+    if (!uploadedSourceMeshes) return false;
+    ensureRigEditHandles();
+    if (reseed || !hasRigEditPointState()) {
+        seedRigEditPointsFromMap(getRigEditSeedMap());
+    }
+    rigEditEnabled = true;
+    activeRigHandle = null;
+    clearRigDragTracking();
+    updateRigEditOverlay();
+    updateFitUi();
+    updateViewportCursor();
+    return true;
+}
+
 function updateRigEditOverlay() {
     const active = !!uploadedSourceMeshes && rigEditEnabled;
     rigEditGroup.visible = active;
-    debugGroup.visible = debugEnabled && !rigEditEnabled;
+    debugGroup.visible = debugEnabled && !active;
     if (!active) return;
     ensureRigEditHandles();
 
-    const canonicalMap = getCanonicalRigHandleMap();
-    for (const role of rigEditRoles) {
-        if (!rigEditPoints[role] && canonicalMap[role]) {
-            rigEditPoints[role] = canonicalMap[role].clone();
-        }
-    }
-
-    const ghostMatrix = computeSimilarityMatrixFromMaps(canonicalMap, rigEditPoints);
-    const ghostPositions = {};
-    const rootMatrix = getRigEditRootMatrix();
-    for (const boneName of DEMO.boneNames) {
-        const matrix = activeTargetRestByRole[boneName];
-        if (!matrix) continue;
-        ghostPositions[boneName] = new THREE.Vector3()
-            .setFromMatrixPosition(matrix)
-            .applyMatrix4(ghostMatrix)
-            .applyMatrix4(rootMatrix);
-    }
-    for (const [role, boneName] of Object.entries(rigEditRoleToBone)) {
-        if (rigEditPoints[role]) {
-            ghostPositions[boneName] = rigEditPoints[role].clone().applyMatrix4(rootMatrix);
-        }
-    }
+    const editPositions = buildRigEditDisplayHandleMap({ fillMissingFromLive: true });
 
     const attr = rigEditLineGeometry.getAttribute("position");
     for (let index = 0; index < BONE_PAIRS.length; index++) {
         const [fromIndex, toIndex] = BONE_PAIRS[index];
-        const from = ghostPositions[BONE_NAMES[fromIndex]];
-        const to = ghostPositions[BONE_NAMES[toIndex]];
+        const from = editPositions[BONE_NAMES[fromIndex]];
+        const to = editPositions[BONE_NAMES[toIndex]];
         if (from && to) {
             attr.setXYZ(index * 2, from.x, from.y, from.z);
             attr.setXYZ(index * 2 + 1, to.x, to.y, to.z);
@@ -1109,31 +1299,65 @@ function updateRigEditOverlay() {
 
     for (const boneName of DEMO.boneNames) {
         const joint = rigEditJointMap.get(boneName);
-        const point = ghostPositions[boneName];
-        if (!joint) continue;
-        joint.visible = !!point;
-        if (point) joint.position.copy(point);
+        const pickJoint = rigEditHandleMap.get(boneName);
+        const point = editPositions[boneName];
+        if (joint) {
+            joint.visible = !!point;
+            if (point) joint.position.copy(point);
+        }
+        if (pickJoint) {
+            pickJoint.visible = !!point;
+            if (point) pickJoint.position.copy(point);
+        }
     }
-}
-
-function getFittedDebugRestPoints() {
-    if (!uploadedSourceMeshes) return null;
-    if (fittedDebugRestPoints) return fittedDebugRestPoints;
-    return rigEditHasManualPoints ? rigEditPoints : null;
+    rigEditGroup.updateMatrixWorld(true);
 }
 
 function getDebugBonePosition(boneName, target) {
+    if (uploadedRigMode === "preserved") {
+        const uploadedBone = uploadedRigDriverBoneByName.get(boneName);
+        if (uploadedBone) return target.setFromMatrixPosition(uploadedBone.matrixWorld);
+    }
     const bone = boneMap[boneName];
     if (!bone) return null;
-
-    const fittedRestPoints = getFittedDebugRestPoints();
-    const fittedRestPoint = fittedRestPoints?.[boneName];
-    if (fittedRestPoint) {
-        _debugRootMatrix.compose(currentRootPos, currentRootQuat, _debugRootScale);
-        return target.copy(fittedRestPoint).applyMatrix4(_debugRootMatrix);
-    }
-
     return target.setFromMatrixPosition(bone.matrixWorld);
+}
+
+function getUploadedRigHandlePosition(role, target, { restWorldByBone = null, fitMatrix = null } = {}) {
+    if (uploadedRigMode !== "preserved") return null;
+    const uploadedBone = uploadedRigDriverBoneByName.get(role);
+    if (!uploadedBone) return null;
+    const localOffset = uploadedRigHandleLocalByName.get(role);
+    if (localOffset) target.copy(localOffset);
+    else target.set(0, 0, 0);
+    const matrix = restWorldByBone ? restWorldByBone.get(uploadedBone) : uploadedBone.matrixWorld;
+    if (!matrix) return null;
+    target.applyMatrix4(matrix);
+    if (fitMatrix) target.applyMatrix4(fitMatrix);
+    return target;
+}
+
+function getRigHandlePosition(boneName, target) {
+    const uploadedPoint = getUploadedRigHandlePosition(boneName, target);
+    if (uploadedPoint) return uploadedPoint;
+    return getDebugBonePosition(boneName, target);
+}
+
+function getVisibleSkeletonBonePosition(boneName, target, visibleHandleMap = null) {
+    const visiblePoint = visibleHandleMap?.[boneName];
+    if (visiblePoint) return target.copy(visiblePoint);
+    return getRigHandlePosition(boneName, target);
+}
+
+function getContactMarkerPosition(boneName, target) {
+    if (uploadedRigMode === "preserved") {
+        const uploadedBone = uploadedRigDriverBoneByName.get(boneName);
+        const localOffset = uploadedRigContactLocalByName.get(boneName);
+        if (uploadedBone && localOffset) {
+            return target.copy(localOffset).applyMatrix4(uploadedBone.matrixWorld);
+        }
+    }
+    return getDebugBonePosition(boneName, target);
 }
 
 function getFacingDisplayDirection() {
@@ -1154,7 +1378,7 @@ function getFacingDisplayDirection() {
 }
 
 function updateFacingGizmo() {
-    const visible = !!modelRoot && !rigEditEnabled && directionRingVisible && controlMode === "manual";
+    const visible = !!modelRoot && !rigEditEnabled && directionRingVisible && controlMode === "manual" && !isUploadedSkeletonDebugOverlayActive();
     facingGizmoGroup.visible = visible;
     if (!visible) return;
 
@@ -1196,6 +1420,7 @@ function updatePathUi() {
     }
     if (pathClearButton) pathClearButton.disabled = pathWaypoints.length === 0;
     if (pathLoopToggle) pathLoopToggle.checked = pathLoop;
+    if (pathDisplayToggle) pathDisplayToggle.checked = pathDisplayVisible;
     if (pathStatus) {
         if (pathWaypoints.length === 0) {
             pathStatus.textContent = "No path points";
@@ -1210,7 +1435,8 @@ function rebuildPathVisuals() {
     while (pathPointGroup.children.length) {
         pathPointGroup.remove(pathPointGroup.children[0]);
     }
-    pathGroup.visible = controlMode === "path";
+    const showPathVisuals = controlMode === "path" && pathDisplayVisible;
+    pathGroup.visible = showPathVisuals;
     const points = pathWaypoints.map((point) => new THREE.Vector3(point.x, 0.055, point.z));
     pathLineGeometry.setAttribute(
         "position",
@@ -1228,8 +1454,14 @@ function rebuildPathVisuals() {
         pathPointGroup.add(marker);
     }
     const target = pathWaypoints[pathWaypointIndex];
-    pathTargetMarker.visible = !!target && controlMode === "path";
+    pathTargetMarker.visible = !!target && showPathVisuals;
     if (target) pathTargetMarker.position.set(target.x, 0.035, target.z);
+}
+
+function setPathDisplayVisible(visible) {
+    pathDisplayVisible = !!visible;
+    if (pathDisplayToggle) pathDisplayToggle.checked = pathDisplayVisible;
+    rebuildPathVisuals();
 }
 
 function setControlMode(mode) {
@@ -1465,6 +1697,7 @@ function disposeActiveTexture() {
 function restoreCanonicalSurface({ keepStatus = false } = {}) {
     clearUploadedBinding({ revokeObjectUrl: true, resetSource: true });
     disposeActiveTexture();
+    resetActiveTargetRest();
     for (const { mesh, material } of canonicalMaterialTemplates) {
         mesh.material = cloneMaterial(material);
         if (Array.isArray(mesh.material)) {
@@ -1488,12 +1721,16 @@ async function loadCanonicalTexture(file) {
 function normalizeBoneName(name) {
     return (name || "")
         .toLowerCase()
-        .replace(/mixamorig|armature|skeleton|rig|ctrl|def|org|jnt|joint/g, "")
-        .replace(/[^a-z0-9]/g, "");
+        .replace(/mixamorig/g, "")
+        .replace(/[^a-z0-9]+/g, " ")
+        .split(/\s+/)
+        .filter((part) => part && !/^(armature|skeleton|rig|ctrl|def|org|jnt|joint)$/.test(part))
+        .join("");
 }
 
 function inferCanonicalBoneByName(name) {
     const normalized = normalizeBoneName(name);
+    if (/end$/.test(normalized)) return null;
     const patterns = [
         ["Hips", [/^hips?$/, /pelvis/, /^root$/, /spinebase/]],
         ["Spine", [/^spine$/]],
@@ -1541,13 +1778,15 @@ function buildUploadedRigRetargetPairs(fitMatrix) {
     if (!uploadedRigBones.length) return [];
     const canonicalRestPositions = {};
     for (const boneName of DEMO.boneNames) {
-        const matrix = activeTargetRestByRole[boneName];
+        const matrix = canonicalRestByRole[boneName];
         if (!matrix) continue;
         canonicalRestPositions[boneName] = new THREE.Vector3().setFromMatrixPosition(matrix);
     }
     return uploadedRigBones
         .map((bone) => {
-            let driverName = inferCanonicalBoneByName(bone.name);
+            const inferredName = inferCanonicalBoneByName(bone.name);
+            let driverName = inferredName;
+            let proximityMapped = false;
             if (!driverName) {
                 const restWorld = uploadedRigRestWorldByBone.get(bone);
                 if (restWorld) {
@@ -1567,18 +1806,140 @@ function buildUploadedRigRetargetPairs(fitMatrix) {
                         }
                     }
                     driverName = bestName;
+                    proximityMapped = true;
                 } else {
                     driverName = "Hips";
+                    proximityMapped = true;
                 }
             }
-            return { bone, driverName, depth: getBoneDepth(bone) };
+            return { bone, driverName, depth: getBoneDepth(bone), proximityMapped };
         })
         .sort((a, b) => a.depth - b.depth);
+}
+
+function rebuildUploadedRigDriverLookup() {
+    uploadedRigDriverBoneByName = new Map();
+    for (const { bone, driverName } of uploadedRigRetargetPairs) {
+        const current = uploadedRigDriverBoneByName.get(driverName);
+        const exact = bone.name === driverName;
+        const currentExact = current?.name === driverName;
+        if (!current || (exact && !currentExact) || (!currentExact && getBoneDepth(bone) < getBoneDepth(current))) {
+            uploadedRigDriverBoneByName.set(driverName, bone);
+        }
+    }
+}
+
+function rebuildUploadedRigContactAnchors() {
+    uploadedRigContactLocalByName = new Map();
+    if (!uploadedGroup || !uploadedRigSkeleton) return;
+
+    withUploadedRigRestPose(() => {
+    const samplesByRole = new Map(CONTACT_BONE_NAMES.map((name) => [name, []]));
+    uploadedGroup.updateMatrixWorld(true);
+    uploadedRigSkeleton.update();
+    uploadedGroup.traverse((mesh) => {
+        if (!mesh.isSkinnedMesh || !mesh.geometry?.getAttribute("position") || !mesh.skeleton) return;
+        const position = mesh.geometry.getAttribute("position");
+        const skinIndex = mesh.geometry.getAttribute("skinIndex");
+        const skinWeight = mesh.geometry.getAttribute("skinWeight");
+        if (!skinIndex || !skinWeight) return;
+
+        const roleByIndex = new Map();
+        for (const role of CONTACT_BONE_NAMES) {
+            const bone = uploadedRigDriverBoneByName.get(role);
+            const index = bone ? mesh.skeleton.bones.indexOf(bone) : -1;
+            if (index >= 0) roleByIndex.set(index, role);
+        }
+        if (!roleByIndex.size) return;
+
+        mesh.updateMatrixWorld(true);
+        mesh.skeleton.update();
+        for (let i = 0; i < position.count; i++) {
+            let matched = false;
+            for (let j = 0; j < 4; j++) {
+                const role = roleByIndex.get(skinIndex.getComponent(i, j));
+                if (role && skinWeight.getComponent(i, j) > 0.05) {
+                    matched = true;
+                    break;
+                }
+            }
+            if (!matched) continue;
+
+            _skinVertex.fromBufferAttribute(position, i);
+            if (typeof mesh.applyBoneTransform === "function") mesh.applyBoneTransform(i, _skinVertex);
+            else if (typeof mesh.boneTransform === "function") mesh.boneTransform(i, _skinVertex);
+            _skinWorld.copy(_skinVertex).applyMatrix4(mesh.matrixWorld);
+
+            for (let j = 0; j < 4; j++) {
+                const role = roleByIndex.get(skinIndex.getComponent(i, j));
+                const weight = skinWeight.getComponent(i, j);
+                if (!role || weight <= 0.05) continue;
+                samplesByRole.get(role).push({ point: _skinWorld.clone(), weight });
+            }
+        }
+    });
+
+    for (const role of CONTACT_BONE_NAMES) {
+        const bone = uploadedRigDriverBoneByName.get(role);
+        const samples = samplesByRole.get(role);
+        if (!bone || !samples?.length) continue;
+        samples.sort((a, b) => a.point.y - b.point.y);
+        const sampleCount = Math.min(48, Math.max(8, Math.ceil(samples.length * 0.08)));
+        const centroid = new THREE.Vector3();
+        let totalWeight = 0;
+        for (const sample of samples.slice(0, sampleCount)) {
+            centroid.addScaledVector(sample.point, sample.weight);
+            totalWeight += sample.weight;
+        }
+        if (totalWeight <= 1e-5) continue;
+        centroid.multiplyScalar(1 / totalWeight);
+        _matA.copy(bone.matrixWorld).invert();
+        uploadedRigContactLocalByName.set(role, centroid.applyMatrix4(_matA).clone());
+    }
+    });
+}
+
+function withUploadedRigRestPose(callback) {
+    if (!uploadedRigRoot || !uploadedRigBones.length) return callback();
+    const saved = uploadedRigBones.map((bone) => ({
+        bone,
+        position: bone.position.clone(),
+        quaternion: bone.quaternion.clone(),
+        scale: bone.scale.clone(),
+    }));
+    try {
+        for (const bone of uploadedRigBones) {
+            const restLocal = uploadedRigRestLocalByBone.get(bone);
+            if (!restLocal) continue;
+            restLocal.decompose(bone.position, bone.quaternion, bone.scale);
+            bone.updateMatrix();
+        }
+        uploadedRigRoot.updateMatrixWorld(true);
+        if (uploadedRigSkeleton) uploadedRigSkeleton.update();
+        return callback();
+    } finally {
+        for (const entry of saved) {
+            entry.bone.position.copy(entry.position);
+            entry.bone.quaternion.copy(entry.quaternion);
+            entry.bone.scale.copy(entry.scale);
+            entry.bone.updateMatrix();
+        }
+        uploadedRigRoot.updateMatrixWorld(true);
+        if (uploadedRigSkeleton) uploadedRigSkeleton.update();
+    }
 }
 
 function captureUploadedRigReference() {
     uploadedRigBones = [];
     uploadedRigRestWorldByBone = new Map();
+    uploadedRigRestLocalByBone = new Map();
+    uploadedRigOriginalRestWorldByBone = new Map();
+    uploadedRigOriginalRestLocalByBone = new Map();
+    uploadedRigRestParentWorldByBone = new Map();
+    uploadedRigDriverBoneByName = new Map();
+    uploadedRigContactLocalByName = new Map();
+    uploadedRigHandleLocalByName = new Map();
+    uploadedRigEditedHandleRoles = new Set();
     uploadedRigSkeleton = null;
     if (!uploadedRigRoot) return;
 
@@ -1597,9 +1958,84 @@ function captureUploadedRigReference() {
     if (!uploadedRigSkeleton) return;
 
     uploadedRigBones = [...uploadedRigSkeleton.bones];
+    uploadedRigOriginalBoneInverses = uploadedRigSkeleton.boneInverses.map((matrix) => matrix.clone());
     for (const bone of uploadedRigBones) {
-        uploadedRigRestWorldByBone.set(bone, bone.matrixWorld.clone());
+        bone.updateMatrix();
+        const restWorld = bone.matrixWorld.clone();
+        const restLocal = bone.matrix.clone();
+        uploadedRigRestWorldByBone.set(bone, restWorld.clone());
+        uploadedRigRestLocalByBone.set(bone, restLocal.clone());
+        uploadedRigOriginalRestWorldByBone.set(bone, restWorld.clone());
+        uploadedRigOriginalRestLocalByBone.set(bone, restLocal.clone());
+        if (!bone.parent?.isBone && bone.parent) {
+            uploadedRigRestParentWorldByBone.set(bone, bone.parent.matrixWorld.clone());
+        }
     }
+}
+
+function resetUploadedRigRestToOriginal() {
+    uploadedRigRestWorldByBone = cloneMatrixMap(uploadedRigOriginalRestWorldByBone);
+    uploadedRigRestLocalByBone = cloneMatrixMap(uploadedRigOriginalRestLocalByBone);
+    uploadedRigContactLocalByName = new Map();
+    uploadedRigHandleLocalByName = new Map();
+    uploadedRigEditedHandleRoles = new Set();
+    restoreUploadedRigBoneInverses();
+}
+
+function restoreUploadedRigBoneInverses() {
+    if (!uploadedRigSkeleton || !uploadedRigOriginalBoneInverses.length) return;
+    for (let index = 0; index < uploadedRigSkeleton.boneInverses.length; index++) {
+        const originalInverse = uploadedRigOriginalBoneInverses[index];
+        if (!originalInverse) continue;
+        if (!uploadedRigSkeleton.boneInverses[index]) uploadedRigSkeleton.boneInverses[index] = new THREE.Matrix4();
+        uploadedRigSkeleton.boneInverses[index].copy(originalInverse);
+    }
+    uploadedRigSkeleton.update();
+}
+
+function getPreservedRigHandleRestWorld(role, target, fitMatrix) {
+    const uploadedBone = uploadedRigDriverBoneByName.get(role);
+    if (!uploadedBone) return null;
+    const restWorld = uploadedRigRestWorldByBone.get(uploadedBone);
+    if (!restWorld) return null;
+    const localOffset = uploadedRigHandleLocalByName.get(role);
+    target.copy(localOffset || _zeroVec).applyMatrix4(restWorld).applyMatrix4(fitMatrix);
+    return target;
+}
+
+function getCanonicalDriverDelta(driverName, target) {
+    const driverBone = boneMap[driverName];
+    const driverRestInverse = canonicalRestInverseByRole[driverName];
+    if (!driverBone || !driverRestInverse) return null;
+    return target.copy(driverBone.matrixWorld).multiply(driverRestInverse);
+}
+
+function getDesiredPreservedRigHandleWorld(role, fitMatrix, target) {
+    if (!getPreservedRigHandleRestWorld(role, target, fitMatrix)) return null;
+    const driverDelta = getCanonicalDriverDelta(role, _matF);
+    if (!driverDelta) return null;
+    target.applyMatrix4(driverDelta);
+    return target;
+}
+
+function solveBonePositionForControlHandle(bone, parentWorld, localOffset, desiredHandleWorld) {
+    if (!bone || !parentWorld || !localOffset || !desiredHandleWorld) return false;
+    _matF.copy(parentWorld).invert();
+    _handleParentLocal.copy(desiredHandleWorld).applyMatrix4(_matF);
+    _matG.compose(_zeroVec, bone.quaternion, bone.scale);
+    _offsetParentLocal.copy(localOffset).applyMatrix4(_matG);
+    bone.position.copy(_handleParentLocal.sub(_offsetParentLocal));
+    return true;
+}
+
+function shouldDriveUploadedBone(pair, drivenBones) {
+    if (!pair.proximityMapped) return true;
+    let parent = pair.bone.parent;
+    while (parent) {
+        if (drivenBones.has(parent)) return false;
+        parent = parent.parent;
+    }
+    return true;
 }
 
 function applyPreservedUploadedRigPose() {
@@ -1609,31 +2045,64 @@ function applyPreservedUploadedRigPose() {
     uploadedGroup.matrix.copy(fitMatrix);
     uploadedGroup.matrixWorld.copy(fitMatrix);
     uploadedGroup.updateMatrixWorld(true);
+    uploadedRigRoot.updateMatrixWorld(true);
 
-    const desiredWorldByBone = new Map();
-    for (const { bone, driverName } of uploadedRigRetargetPairs) {
+    const drivenBones = new Set();
+    for (const pair of uploadedRigRetargetPairs) {
+        const { bone, driverName } = pair;
+        if (!shouldDriveUploadedBone(pair, drivenBones)) continue;
         const driverBone = boneMap[driverName];
-        const driverRestInverse = canonicalRestInverseByRole[driverName];
-        const uploadedRestWorld = uploadedRigRestWorldByBone.get(bone);
-        if (!driverBone || !driverRestInverse || !uploadedRestWorld) continue;
-        const desiredWorld = _matA
-            .copy(driverBone.matrixWorld)
-            .multiply(_matB.copy(driverRestInverse))
-            .multiply(_matC.copy(fitMatrix))
-            .multiply(_matD.copy(uploadedRestWorld));
-        desiredWorldByBone.set(bone, desiredWorld.clone());
-    }
+        const uploadedRestLocal = uploadedRigRestLocalByBone.get(bone);
+        if (!driverBone || !uploadedRestLocal) continue;
+        const usesEditedControlHandle = uploadedRigEditedHandleRoles.has(driverName)
+            && uploadedRigDriverBoneByName.get(driverName) === bone
+            && uploadedRigHandleLocalByName.has(driverName);
+        const controlHandleOffset = usesEditedControlHandle ? uploadedRigHandleLocalByName.get(driverName) : null;
 
-    for (const { bone } of uploadedRigRetargetPairs) {
-        const desiredWorld = desiredWorldByBone.get(bone);
-        if (!desiredWorld) continue;
-        const parent = bone.parent;
-        const parentWorld = parent?.isBone
-            ? (desiredWorldByBone.get(parent) || parent.matrixWorld)
-            : (parent ? parent.matrixWorld : uploadedGroup.matrixWorld);
-        const localMatrix = _matE.copy(parentWorld).invert().multiply(desiredWorld);
-        localMatrix.decompose(bone.position, bone.quaternion, bone.scale);
+        const parentName = BONE_PARENT_BY_NAME[driverName];
+        const parentDriverBone = parentName ? boneMap[parentName] : null;
+        const sourceLocalRest = canonicalLocalRestByRole[driverName];
+        if (parentDriverBone && sourceLocalRest && bone.parent?.isBone) {
+            _sourceParentInverse.copy(parentDriverBone.matrixWorld).invert();
+            _sourceLocalAnimated.multiplyMatrices(_sourceParentInverse, driverBone.matrixWorld);
+            _sourceLocalAnimated.decompose(_sourceLocalPos, _sourceLocalQuat, _sourceLocalScale);
+            sourceLocalRest.decompose(_sourceRestLocalPos, _sourceRestLocalQuat, _sourceRestLocalScale);
+            uploadedRestLocal.decompose(_targetRestLocalPos, _targetRestLocalQuat, _targetRestLocalScale);
+            _sourceRestLocalInvQuat.copy(_sourceRestLocalQuat).invert();
+            _targetDeltaQuat.copy(_sourceRestLocalInvQuat).multiply(_sourceLocalQuat).normalize();
+            _targetLocalQuat.copy(_targetRestLocalQuat).multiply(_targetDeltaQuat).normalize();
+            bone.position.copy(_targetRestLocalPos);
+            bone.quaternion.copy(_targetLocalQuat);
+            bone.scale.copy(_targetRestLocalScale);
+            if (usesEditedControlHandle) {
+                const desiredHandle = getDesiredPreservedRigHandleWorld(driverName, fitMatrix, _desiredHandleWorld);
+                if (desiredHandle) {
+                    solveBonePositionForControlHandle(bone, bone.parent.matrixWorld, controlHandleOffset, desiredHandle);
+                }
+            }
+        } else {
+            const driverRestInverse = canonicalRestInverseByRole[driverName];
+            const uploadedRestWorld = uploadedRigRestWorldByBone.get(bone);
+            if (!driverRestInverse || !uploadedRestWorld) continue;
+            const desiredWorld = _matA
+                .copy(driverBone.matrixWorld)
+                .multiply(_matB.copy(driverRestInverse))
+                .multiply(_matC.copy(fitMatrix))
+                .multiply(_matD.copy(uploadedRestWorld));
+            const parent = bone.parent;
+            const parentWorld = parent ? parent.matrixWorld : uploadedGroup.matrixWorld;
+            const localMatrix = _matE.copy(parentWorld).invert().multiply(desiredWorld);
+            localMatrix.decompose(bone.position, bone.quaternion, bone.scale);
+            if (usesEditedControlHandle) {
+                const desiredHandle = getDesiredPreservedRigHandleWorld(driverName, fitMatrix, _desiredHandleWorld);
+                if (desiredHandle) {
+                    solveBonePositionForControlHandle(bone, parentWorld, controlHandleOffset, desiredHandle);
+                }
+            }
+        }
         bone.updateMatrix();
+        bone.updateMatrixWorld(true);
+        drivenBones.add(bone);
     }
 
     uploadedRigRoot.updateMatrixWorld(true);
@@ -1777,10 +2246,10 @@ function buildUserFitMatrix() {
 }
 
 function getCanonicalLandmark(name) {
-    if (name === "head") return new THREE.Vector3().setFromMatrixPosition(activeTargetRestByRole.Head);
-    if (name === "hips") return new THREE.Vector3().setFromMatrixPosition(activeTargetRestByRole.Hips);
-    if (name === "leftHand") return new THREE.Vector3().setFromMatrixPosition(activeTargetRestByRole.LeftHand);
-    if (name === "rightHand") return new THREE.Vector3().setFromMatrixPosition(activeTargetRestByRole.RightHand);
+    if (name === "head") return new THREE.Vector3().setFromMatrixPosition(canonicalRestByRole.Head);
+    if (name === "hips") return new THREE.Vector3().setFromMatrixPosition(canonicalRestByRole.Hips);
+    if (name === "leftHand") return new THREE.Vector3().setFromMatrixPosition(canonicalRestByRole.LeftHand);
+    if (name === "rightHand") return new THREE.Vector3().setFromMatrixPosition(canonicalRestByRole.RightHand);
     return null;
 }
 
@@ -1842,7 +2311,7 @@ function captureCanonicalReference() {
     const points = samplePointsFromMeshes(baked, 2600);
     canonicalBounds = computeBoundsFromPoints(points);
     canonicalAnchorPoints = ["Head", "LeftHand", "RightHand", "LeftFoot", "RightFoot", "Hips"]
-        .map((name) => activeTargetRestByRole[name])
+        .map((name) => canonicalRestByRole[name])
         .filter(Boolean)
         .map((matrix) => new THREE.Vector3().setFromMatrixPosition(matrix));
 
@@ -1864,7 +2333,7 @@ function captureCanonicalReference() {
     }
 }
 
-function buildSkinAttributes(geometry) {
+function buildSkinAttributes(geometry, segments = canonicalSegments) {
     const position = geometry.getAttribute("position");
     const skinIndex = new Uint16Array(position.count * 4);
     const skinWeight = new Float32Array(position.count * 4);
@@ -1873,7 +2342,7 @@ function buildSkinAttributes(geometry) {
     for (let i = 0; i < position.count; i++) {
         vertex.fromBufferAttribute(position, i);
         const weightsByBone = new Map();
-        for (const segment of canonicalSegments) {
+        for (const segment of segments) {
             delta.subVectors(segment.end, segment.start);
             const lengthSq = segment.lengthSq;
             let t = 0;
@@ -1908,7 +2377,16 @@ function clearUploadedBinding({ revokeObjectUrl = false, resetSource = false } =
     uploadedRigSkeleton = null;
     uploadedRigBones = [];
     uploadedRigRestWorldByBone = new Map();
+    uploadedRigRestLocalByBone = new Map();
+    uploadedRigOriginalRestWorldByBone = new Map();
+    uploadedRigOriginalRestLocalByBone = new Map();
+    uploadedRigOriginalBoneInverses = [];
+    uploadedRigRestParentWorldByBone = new Map();
     uploadedRigRetargetPairs = [];
+    uploadedRigDriverBoneByName = new Map();
+    uploadedRigContactLocalByName = new Map();
+    uploadedRigHandleLocalByName = new Map();
+    uploadedRigEditedHandleRoles = new Set();
     uploadedRigMode = null;
     if (revokeObjectUrl && activeObjectUrl) {
         URL.revokeObjectURL(activeObjectUrl);
@@ -1919,7 +2397,7 @@ function clearUploadedBinding({ revokeObjectUrl = false, resetSource = false } =
         uploadedAutoFitMatrix = null;
         fitState = createDefaultFitState();
         activeLandmarkTarget = null;
-        fittedDebugRestPoints = null;
+        resetActiveTargetRest();
         uploadedLandmarkPoints.head = null;
         uploadedLandmarkPoints.hips = null;
         uploadedLandmarkPoints.leftHand = null;
@@ -1960,16 +2438,59 @@ function rebuildUploadedBinding() {
     const fitMatrix = uploadedAutoFitMatrix.clone().premultiply(buildUserFitMatrix());
     if (uploadedRigMode === "preserved") {
         uploadedRigRetargetPairs = buildUploadedRigRetargetPairs(fitMatrix);
+        rebuildUploadedRigDriverLookup();
+        restoreUploadedRigBoneInverses();
+        if (!uploadedRigContactLocalByName.size) rebuildUploadedRigContactAnchors();
         if (uploadedGroup) {
             uploadedGroup.matrixAutoUpdate = false;
             uploadedGroup.matrix.copy(fitMatrix);
             uploadedGroup.matrixWorld.copy(fitMatrix);
             uploadedGroup.updateMatrixWorld(true);
         }
+        applyPreservedUploadedRigPose();
         setModelVisibility(meshVisible);
         return;
     }
     bindUploadToCanonicalSkeleton(uploadedSourceMeshes, fitMatrix, activeObjectUrl);
+}
+
+function commitRigEditPointsToActiveTargetRest() {
+    let changed = false;
+    for (const role of rigEditRoles) {
+        const point = rigEditPoints[role];
+        const boneName = rigEditRoleToBone[role];
+        const matrix = boneName ? (activeTargetRestByRole[boneName] || canonicalRestByRole[boneName]) : null;
+        if (!point || !boneName || !matrix) continue;
+        activeTargetRestByRole[boneName] = cloneMatrixWithPosition(matrix, point);
+        changed = true;
+    }
+    return changed;
+}
+
+function commitRigEditPointsToPreservedRigHandles() {
+    if (uploadedRigMode !== "preserved" || !uploadedRigBones.length) return false;
+    let changed = false;
+    const fitMatrix = uploadedAutoFitMatrix.clone().premultiply(buildUserFitMatrix());
+
+    for (const role of rigEditRoles) {
+        if (!rigEditEditedRoles.has(role)) continue;
+        const point = rigEditPoints[role];
+        const boneName = rigEditRoleToBone[role];
+        const bone = boneName ? uploadedRigDriverBoneByName.get(boneName) : null;
+        if (!point || !bone) continue;
+        const restWorld = uploadedRigRestWorldByBone.get(bone);
+        if (!restWorld) continue;
+        const restPoint = point.clone();
+        const driverDelta = getCanonicalDriverDelta(boneName, _matA);
+        if (driverDelta) restPoint.applyMatrix4(_matB.copy(driverDelta).invert());
+        const restHandleMatrix = _matC.copy(fitMatrix).multiply(restWorld);
+        const localOffset = restPoint.applyMatrix4(_matD.copy(restHandleMatrix).invert());
+        uploadedRigHandleLocalByName.set(role, localOffset.clone());
+        uploadedRigEditedHandleRoles.add(role);
+        changed = true;
+    }
+
+    return changed;
 }
 
 function applyLandmarkCorrection() {
@@ -1983,8 +2504,8 @@ function applyLandmarkCorrection() {
     uploadedAutoFitMatrix = currentFit.premultiply(correction);
     fitState = createDefaultFitState();
     activeLandmarkTarget = null;
-    fittedDebugRestPoints = null;
     rigEditHasManualPoints = false;
+    if (uploadedRigMode === "preserved") resetUploadedRigRestToOriginal();
     uploadedLandmarkPoints.head = null;
     uploadedLandmarkPoints.hips = null;
     uploadedLandmarkPoints.leftHand = null;
@@ -1998,43 +2519,71 @@ function applyLandmarkCorrection() {
 
 function applyRigEditAlignment() {
     if (!uploadedSourceMeshes || !uploadedAutoFitMatrix) return;
-    const canonicalMap = getCanonicalRigHandleMap();
-    const correction = computeSimilarityMatrixFromMaps(rigEditPoints, canonicalMap);
-    if (!correction) {
-        setAssetStatus("Drag at least three rig nodes before applying", "warn");
+    if (!rigEditRoles.some((role) => rigEditPoints[role]) && !rigEditEditedRoles.size) {
+        setAssetStatus("No skeleton edits to apply", "warn");
         return;
     }
-    fittedDebugRestPoints = cloneRigEditPointMap(rigEditPoints);
-    uploadedAutoFitMatrix = correction.multiply(uploadedAutoFitMatrix.clone());
+    if (uploadedRigMode === "preserved") {
+        if (!rigEditEditedRoles.size) {
+            setAssetStatus("No skeleton edits to apply", "warn");
+            return;
+        }
+        const updatedPreservedHandles = commitRigEditPointsToPreservedRigHandles();
+        if (!updatedPreservedHandles) {
+            setAssetStatus("No preserved rig bones matched the edited skeleton", "warn");
+            return;
+        }
+        rebuildUploadedBinding();
+        seedRigEditPointsFromMap(getRigEditSeedMap());
+        rigEditHasManualPoints = false;
+        rigEditEnabled = false;
+        rigEditEditedRoles.clear();
+        updateRigEditOverlay();
+        updateFitUi();
+        updateViewportCursor();
+        setAssetStatus("Applied skeleton landmark edits to preserved rig", "ok");
+        return;
+    }
+    const updatedTargetRest = commitRigEditPointsToActiveTargetRest();
+    if (!updatedTargetRest && uploadedRigMode !== "preserved") {
+        setAssetStatus("No skeleton edits to apply", "warn");
+        return;
+    }
     rebuildUploadedBinding();
-    resetRigEditHandles();
+    seedRigEditPointsFromMap(getRigEditSeedMap());
     rigEditHasManualPoints = false;
     rigEditEnabled = false;
+    rigEditEditedRoles.clear();
+    updateRigEditOverlay();
     updateFitUi();
     updateViewportCursor();
-    setAssetStatus(uploadedRigMode === "preserved" ? "Applied manual rig alignment to preserved rig" : "Applied manual rig alignment", "ok");
+    setAssetStatus(uploadedRigMode === "preserved" ? "Applied edited skeleton to preserved rig" : "Applied edited skeleton", "ok");
 }
 
 function restoreAutoRigFit() {
     if (!uploadedSourceMeshes) return;
-    fittedDebugRestPoints = null;
     rigEditHasManualPoints = false;
+    resetActiveTargetRest();
+    if (uploadedRigMode === "preserved") resetUploadedRigRestToOriginal();
     uploadedAutoFitMatrix = chooseBestFitMatrix(samplePointsFromMeshes(uploadedSourceMeshes));
     rebuildUploadedBinding();
     resetRigEditHandles();
     rigEditEnabled = false;
     updateFitUi();
     updateViewportCursor();
-    setAssetStatus(uploadedRigMode === "preserved" ? "Restored automatic preserved-rig fit · Fit Rig stays optional" : "Restored automatic rig fit · Fit Rig stays optional", "ok");
+    setAssetStatus(uploadedRigMode === "preserved" ? "Restored automatic preserved skeleton alignment" : "Restored automatic skeleton alignment", "ok");
 }
 
 async function loadDefaultModel() {
-    const gltf = await loader.loadAsync(DEMO.modelPath);
+    const gltf = await loader.loadAsync(resolveAppUrl(DEMO.modelPath));
     const model = gltf.scene;
     scene.add(model);
     modelRoot = model;
     boneMap = {};
     activeTargetRestByRole = {};
+    clearMatrixMap(canonicalRestByRole);
+    clearMatrixMap(canonicalRestInverseByRole);
+    clearMatrixMap(canonicalLocalRestByRole);
     skinnedMesh = null;
     canonicalTextureTargets = [];
     model.updateMatrixWorld(true);
@@ -2052,10 +2601,13 @@ async function loadDefaultModel() {
             boneMap[child.name] = child;
             child.matrixAutoUpdate = false;
             child.matrixWorldAutoUpdate = false;
-            activeTargetRestByRole[child.name] = child.matrixWorld.clone();
-            canonicalRestInverseByRole[child.name] = child.matrixWorld.clone().invert();
+            const restMatrix = child.matrixWorld.clone();
+            canonicalRestByRole[child.name] = restMatrix.clone();
+            canonicalRestInverseByRole[child.name] = restMatrix.clone().invert();
+            activeTargetRestByRole[child.name] = restMatrix.clone();
         }
     });
+    rebuildCanonicalLocalRest();
     captureCanonicalMaterials();
     captureCanonicalReference();
     rigEditEnabled = false;
@@ -2084,7 +2636,7 @@ async function loadUploadedModel(file) {
         uploadedSourceMeshes = bakedMeshes;
         uploadedAutoFitMatrix = chooseBestFitMatrix(samplePointsFromMeshes(bakedMeshes));
         fitState = createDefaultFitState();
-        fittedDebugRestPoints = null;
+        resetActiveTargetRest();
         rigEditHasManualPoints = false;
         rigEditEnabled = false;
         updateFitUi();
@@ -2103,7 +2655,7 @@ async function loadUploadedModel(file) {
             uploadedRigMode = "preserved";
             captureUploadedRigReference();
             rebuildUploadedBinding();
-            setAssetStatus(`${file.name} loaded · preserved original rig/materials · retargeting from canonical humanoid driver`, "ok");
+            setAssetStatus(`${file.name} loaded · driving preserved uploaded rig`, "ok");
         } else {
             rebuildUploadedBinding();
             setAssetStatus(`${file.name} loaded · no rig detected · fallback rebinding to canonical humanoid rig`, "warn");
@@ -2199,7 +2751,7 @@ async function loadExampleManifest() {
     if (!exampleButton || !exampleMenu) return;
     replaceExampleOptions("Loading examples...");
     try {
-        const response = await fetch(`/api/rigged-mesh/${EXAMPLE_KIND}`, { cache: "no-store" });
+        const response = await fetch(resolveAppUrl(`/api/rigged-mesh/${EXAMPLE_KIND}`), { cache: "no-store" });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const payload = await response.json();
         exampleAssets = Array.isArray(payload.items) ? payload.items : [];
@@ -2217,7 +2769,7 @@ async function loadExampleAsset(example) {
     setExamplePickerDisabled(true);
     setAssetStatus(`Fetching ${example.name || example.fileName}...`, "warn");
     try {
-        const response = await fetch(example.url, { cache: "force-cache" });
+        const response = await fetch(resolveAppUrl(example.url), { cache: "force-cache" });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const blob = await response.blob();
         if (token !== exampleLoadToken) return;
@@ -2382,6 +2934,7 @@ document.addEventListener("visibilitychange", () => {
 
 const canvas = renderer.domElement;
 canvas.addEventListener("pointerdown", (event) => {
+    rigEditInputDebug.pointerDowns += 1;
     if (activeLandmarkTarget && uploadedGroup) {
         const rect = canvas.getBoundingClientRect();
         landmarkPointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
@@ -2394,9 +2947,41 @@ canvas.addEventListener("pointerdown", (event) => {
         rebuildLandmarkMarkers();
         updateViewportCursor();
         setAssetStatus("Landmark captured", "ok");
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
+    }
+    if (beginRigEditPointerDrag(event, "pointer")) {
+        rigEditPointerId = event.pointerId;
+        if (canvas.setPointerCapture) canvas.setPointerCapture(event.pointerId);
+        event.preventDefault();
         return;
     }
 });
+
+canvas.addEventListener("pointermove", (event) => {
+    if (rigEditPointerId === null || event.pointerId !== rigEditPointerId) return;
+    rigEditInputDebug.pointerMoves += 1;
+    if (updateRigEditPointerDrag(event, "pointer")) event.preventDefault();
+});
+
+function releaseRigEditPointer(event, source) {
+    if (rigEditPointerId === null || event.pointerId !== rigEditPointerId) return;
+    rigEditInputDebug.pointerUps += 1;
+    endRigEditPointerDrag(source);
+    if (rigEditPointerId !== null && canvas.releasePointerCapture) {
+        try {
+            canvas.releasePointerCapture(rigEditPointerId);
+        } catch (_error) {
+            // The browser can release capture before pointercancel reaches us.
+        }
+    }
+    rigEditPointerId = null;
+    event.preventDefault();
+}
+
+canvas.addEventListener("pointerup", (event) => releaseRigEditPointer(event, "pointer"));
+canvas.addEventListener("pointercancel", (event) => releaseRigEditPointer(event, "pointercancel"));
 
 function pickRigHandle(event) {
     if (!uploadedSourceMeshes || !rigEditEnabled || !rigEditHandleMap.size) return null;
@@ -2406,10 +2991,184 @@ function pickRigHandle(event) {
     landmarkRaycaster.setFromCamera(landmarkPointer, camera);
     const handles = [...rigEditHandleMap.values()];
     const hit = landmarkRaycaster.intersectObjects(handles, false)[0];
-    return hit ? hit.object.userData.rigRole : null;
+    if (hit) {
+        rigEditInputDebug.lastPickMethod = "raycast-handle";
+        rigEditInputDebug.lastPickDistance = hit.distance;
+        return hit.object.userData.rigRole;
+    }
+
+    return pickScreenSkeletonRole(event, {
+        source: "edit",
+        jointRadius: rigEditScreenPickRadius.joint,
+        segmentRadius: rigEditScreenPickRadius.segment,
+        methodPrefix: "edit",
+    });
+}
+
+function pickVisibleSkeletonHandle(event) {
+    if (!uploadedSourceMeshes || rigEditEnabled || !debugEnabled) return null;
+    return pickScreenSkeletonRole(event, {
+        source: "debug",
+        jointRadius: rigEditVisibleScreenPickRadius.joint,
+        segmentRadius: rigEditVisibleScreenPickRadius.segment,
+        methodPrefix: "visible",
+    });
+}
+
+function distanceToSegmentSq(px, py, ax, ay, bx, by) {
+    const dx = bx - ax;
+    const dy = by - ay;
+    const lengthSq = dx * dx + dy * dy;
+    if (lengthSq < 1e-6) return (px - ax) ** 2 + (py - ay) ** 2;
+    const t = THREE.MathUtils.clamp(((px - ax) * dx + (py - ay) * dy) / lengthSq, 0, 1);
+    const x = ax + dx * t;
+    const y = ay + dy * t;
+    return (px - x) ** 2 + (py - y) ** 2;
+}
+
+function getRoleScreenPoints(source, rect) {
+    const points = new Map();
+    const visibleHandleMap = source === "debug" ? getVisibleSkeletonHandleMap() : null;
+    for (const role of rigEditRoles) {
+        let world = null;
+        if (source === "edit") {
+            const joint = rigEditJointMap.get(role);
+            if (joint?.visible) world = joint.position;
+        } else {
+            world = getVisibleSkeletonBonePosition(role, new THREE.Vector3(), visibleHandleMap);
+        }
+        if (!world) continue;
+        const projected = world.clone().project(camera);
+        if (projected.z < -1 || projected.z > 1) continue;
+        points.set(role, {
+            x: (projected.x * 0.5 + 0.5) * rect.width + rect.left,
+            y: (-projected.y * 0.5 + 0.5) * rect.height + rect.top,
+        });
+    }
+    return points;
+}
+
+function pickScreenSkeletonRole(event, { source, jointRadius, segmentRadius, methodPrefix }) {
+    const rect = canvas.getBoundingClientRect();
+    const screenPoints = getRoleScreenPoints(source, rect);
+    let bestRole = null;
+    let bestDistanceSq = jointRadius * jointRadius;
+    let bestMethod = null;
+    for (const [role, point] of screenPoints) {
+        const distanceSq = (event.clientX - point.x) ** 2 + (event.clientY - point.y) ** 2;
+        if (distanceSq < bestDistanceSq) {
+            bestDistanceSq = distanceSq;
+            bestRole = role;
+            bestMethod = `${methodPrefix}-screen-joint`;
+        }
+    }
+    const segmentLimitSq = segmentRadius * segmentRadius;
+    for (const [fromIndex, toIndex] of BONE_PAIRS) {
+        const fromRole = BONE_NAMES[fromIndex];
+        const toRole = BONE_NAMES[toIndex];
+        const fromPoint = screenPoints.get(fromRole);
+        const toPoint = screenPoints.get(toRole);
+        if (!fromPoint || !toPoint) continue;
+        const distanceSq = distanceToSegmentSq(event.clientX, event.clientY, fromPoint.x, fromPoint.y, toPoint.x, toPoint.y);
+        if (distanceSq >= bestDistanceSq || distanceSq >= segmentLimitSq) continue;
+        const fromDistanceSq = (event.clientX - fromPoint.x) ** 2 + (event.clientY - fromPoint.y) ** 2;
+        const toDistanceSq = (event.clientX - toPoint.x) ** 2 + (event.clientY - toPoint.y) ** 2;
+        bestDistanceSq = distanceSq;
+        bestRole = toDistanceSq <= fromDistanceSq ? toRole : fromRole;
+        bestMethod = `${methodPrefix}-screen-segment`;
+    }
+    rigEditInputDebug.lastPickMethod = bestMethod;
+    rigEditInputDebug.lastPickDistance = bestRole ? Math.sqrt(bestDistanceSq) : null;
+    return bestRole;
+}
+
+function rememberRigInputEvent(event, source, name) {
+    rigEditInputDebug.lastEvent = name;
+    rigEditInputDebug.lastSource = source;
+    rigEditInputDebug.lastClientX = event?.clientX ?? null;
+    rigEditInputDebug.lastClientY = event?.clientY ?? null;
+}
+
+function beginRigEditPointerDrag(event, source) {
+    if (event.button !== 0 || activeLandmarkTarget) {
+        rigEditInputDebug.lastBlockedReason = event.button !== 0 ? "non-primary-button" : "landmark-target-active";
+        return false;
+    }
+    rememberRigInputEvent(event, source, `${source}:down`);
+    let pickedRole = pickRigHandle(event);
+    let pickedFromVisibleSkeleton = false;
+    if (!pickedRole) {
+        const visibleRole = pickVisibleSkeletonHandle(event);
+        if (visibleRole && beginSkeletonEdit()) {
+            pickedRole = visibleRole;
+            pickedFromVisibleSkeleton = true;
+            setAssetStatus("Skeleton editing enabled", "ok");
+        }
+    }
+    rigEditInputDebug.lastPickedRole = pickedRole || null;
+    if (!pickedRole) {
+        rigEditInputDebug.lastBlockedReason = "no-rig-handle-picked";
+        return false;
+    }
+
+    activeRigHandle = pickedRole;
+    const rect = canvas.getBoundingClientRect();
+    landmarkPointer.x = ((event.clientX - rect.left) / Math.max(rect.width, 1)) * 2 - 1;
+    landmarkPointer.y = -((event.clientY - rect.top) / Math.max(rect.height, 1)) * 2 + 1;
+    landmarkRaycaster.setFromCamera(landmarkPointer, camera);
+    camera.getWorldDirection(rigDragNormal).normalize();
+    const handleMesh = rigEditHandleMap.get(pickedRole);
+    let handleWorld = null;
+    if (!pickedFromVisibleSkeleton && handleMesh?.visible) {
+        handleWorld = handleMesh.position.clone();
+    } else {
+        handleWorld = getRigHandlePosition(pickedRole, new THREE.Vector3()) || currentRootPos.clone();
+    }
+    rigEditPoints[pickedRole] = handleWorld.clone();
+    rigDragPlane.setFromNormalAndCoplanarPoint(rigDragNormal, handleWorld);
+    if (landmarkRaycaster.ray.intersectPlane(rigDragPlane, rigDragHit)) {
+        rigDragOffset.copy(handleWorld).sub(rigDragHit);
+    } else {
+        rigDragOffset.set(0, 0, 0);
+    }
+    beginRigEditDrag(pickedRole, handleWorld);
+    rigEditInputDebug.lastActiveRole = activeRigHandle;
+    rigEditInputDebug.lastBlockedReason = null;
+    updateViewportCursor();
+    return true;
+}
+
+function updateRigEditPointerDrag(event, source) {
+    if (!activeRigHandle) return false;
+    rememberRigInputEvent(event, source, `${source}:move`);
+    const rect = canvas.getBoundingClientRect();
+    landmarkPointer.x = ((event.clientX - rect.left) / Math.max(rect.width, 1)) * 2 - 1;
+    landmarkPointer.y = -((event.clientY - rect.top) / Math.max(rect.height, 1)) * 2 + 1;
+    landmarkRaycaster.setFromCamera(landmarkPointer, camera);
+    if (landmarkRaycaster.ray.intersectPlane(rigDragPlane, rigDragHit)) {
+        const desiredWorldPosition = rigDragHit.clone().add(rigDragOffset);
+        if (updateRigEditDrag(activeRigHandle, desiredWorldPosition)) {
+            rigEditHasManualPoints = true;
+            rigEditInputDebug.dragUpdates += 1;
+            rigEditInputDebug.lastActiveRole = activeRigHandle;
+            updateRigEditOverlay();
+        }
+    }
+    return true;
+}
+
+function endRigEditPointerDrag(source) {
+    if (!activeRigHandle) return false;
+    rigEditInputDebug.lastEvent = `${source}:up`;
+    activeRigHandle = null;
+    rigEditInputDebug.lastActiveRole = null;
+    clearRigDragTracking();
+    updateViewportCursor();
+    return true;
 }
 
 canvas.addEventListener("mousedown", (e) => {
+    rigEditInputDebug.mouseDowns += 1;
     if (e.button === 2 && controlMode === "manual") {
         rightMouseDown = true;
         facingDragButton = e.button;
@@ -2417,23 +3176,9 @@ canvas.addEventListener("mousedown", (e) => {
         e.preventDefault();
         return;
     }
-    if (e.button === 0) {
-        const pickedRole = pickRigHandle(e);
-        if (pickedRole && rigEditPoints[pickedRole]) {
-            activeRigHandle = pickedRole;
-            landmarkRaycaster.setFromCamera(landmarkPointer, camera);
-            camera.getWorldDirection(rigDragNormal).normalize();
-            const handleMesh = rigEditHandleMap.get(pickedRole);
-            rigDragPlane.setFromNormalAndCoplanarPoint(rigDragNormal, handleMesh ? handleMesh.position : currentRootPos);
-            if (landmarkRaycaster.ray.intersectPlane(rigDragPlane, rigDragHit)) {
-                rigDragOffset.copy(handleMesh ? handleMesh.position : currentRootPos).sub(rigDragHit);
-            } else {
-                rigDragOffset.set(0, 0, 0);
-            }
-            updateViewportCursor();
-            e.preventDefault();
-            return;
-        }
+    if (e.button === 0 && beginRigEditPointerDrag(e, "mouse")) {
+        e.preventDefault();
+        return;
     }
     if (e.button === 0 && !activeLandmarkTarget) {
         if (controlMode === "path" && handlePathPointer(e)) {
@@ -2460,7 +3205,8 @@ canvas.addEventListener("mousedown", (e) => {
 });
 canvas.addEventListener("mouseup", (e) => {
     if (e.button === 0) {
-        activeRigHandle = null;
+        rigEditInputDebug.mouseUps += 1;
+        endRigEditPointerDrag("mouse");
         activeFacingDrag = false;
         isOrbitDragging = false;
         pathDragActive = false;
@@ -2476,18 +3222,8 @@ canvas.addEventListener("mouseup", (e) => {
 });
 canvas.addEventListener("mousemove", (e) => {
     if (activeRigHandle) {
-        const rect = canvas.getBoundingClientRect();
-        landmarkPointer.x = ((e.clientX - rect.left) / Math.max(rect.width, 1)) * 2 - 1;
-        landmarkPointer.y = -((e.clientY - rect.top) / Math.max(rect.height, 1)) * 2 + 1;
-        landmarkRaycaster.setFromCamera(landmarkPointer, camera);
-        if (landmarkRaycaster.ray.intersectPlane(rigDragPlane, rigDragHit)) {
-            rigEditPoints[activeRigHandle] = rigDragHit
-                .clone()
-                .add(rigDragOffset)
-                .applyMatrix4(getRigEditRootInverseMatrix());
-            rigEditHasManualPoints = true;
-            updateRigEditOverlay();
-        }
+        rigEditInputDebug.mouseMoves += 1;
+        updateRigEditPointerDrag(e, "mouse");
         return;
     }
     if (activeFacingDrag) {
@@ -2521,7 +3257,9 @@ canvas.addEventListener("mousemove", (e) => {
     rightStick = [pos[0] - directionMouseStart[0], directionMouseStart[1] - pos[1]];
 });
 canvas.addEventListener("mouseleave", () => {
+    if (rigEditPointerId !== null) return;
     activeRigHandle = null;
+    clearRigDragTracking();
     activeFacingDrag = false;
     isOrbitDragging = false;
     pathDragActive = false;
@@ -2668,6 +3406,12 @@ function renderFrame(alpha) {
     applyPreservedUploadedRigPose();
     updateRigEditOverlay();
     if (!debugEnabled) return;
+    const visibleHandleMap = getVisibleSkeletonHandleMap();
+    const skeletonOnlyOverlay = !!visibleHandleMap;
+    axisX.visible = !skeletonOnlyOverlay;
+    axisY.visible = !skeletonOnlyOverlay;
+    axisZ.visible = !skeletonOnlyOverlay;
+    ctrlTrajGroup.visible = !skeletonOnlyOverlay;
 
     const ao = _pos.clone();
     ao.y += 0.01;
@@ -2683,8 +3427,8 @@ function renderFrame(alpha) {
         const idxA = skeletonPairEntityIndices[p][0];
         const idxB = skeletonPairEntityIndices[p][1];
         if (idxA >= 0 && idxB >= 0) {
-            const posA = getDebugBonePosition(entityNames[idxA], _debugPosA);
-            const posB = getDebugBonePosition(entityNames[idxB], _debugPosB);
+            const posA = getVisibleSkeletonBonePosition(entityNames[idxA], _debugPosA, visibleHandleMap);
+            const posB = getVisibleSkeletonBonePosition(entityNames[idxB], _debugPosB, visibleHandleMap);
             if (posA && posB) {
                 skelAttr.setXYZ(p * 2, posA.x, posA.y, posA.z);
                 skelAttr.setXYZ(p * 2 + 1, posB.x, posB.y, posB.z);
@@ -2694,7 +3438,13 @@ function renderFrame(alpha) {
     skelAttr.needsUpdate = true;
 
     for (let i = 0; i < entityCount && i < jointSpheres.length; i++) {
-        const pos = getDebugBonePosition(entityNames[i], _debugPosA);
+        const entityName = entityNames[i];
+        if (skeletonOnlyOverlay && !rigEditRoleSet.has(entityName)) {
+            jointSpheres[i].visible = false;
+            continue;
+        }
+        const pos = getVisibleSkeletonBonePosition(entityName, _debugPosA, visibleHandleMap);
+        jointSpheres[i].visible = !!pos;
         if (pos) jointSpheres[i].position.copy(pos);
     }
 
@@ -2713,14 +3463,23 @@ function renderFrame(alpha) {
     cl.needsUpdate = true;
 
     for (let i = 0; i < contactEntityIndices.length; i++) {
+        if (skeletonOnlyOverlay) {
+            contactSpheres[i].visible = false;
+            continue;
+        }
         const idx = contactEntityIndices[i];
         if (idx >= 0) {
-            const pos = getDebugBonePosition(entityNames[idx], _debugPosA);
+            const pos = getContactMarkerPosition(entityNames[idx], _debugPosA);
             if (pos) {
+                contactSpheres[i].visible = true;
                 contactSpheres[i].position.copy(pos);
                 const contact = framePrev ? THREE.MathUtils.lerp(framePrev.contacts[i], frameCurr.contacts[i], alpha) : frameCurr.contacts[i];
                 contactSpheres[i].material.color.setRGB(1 - contact, contact, 0);
+            } else {
+                contactSpheres[i].visible = false;
             }
+        } else {
+            contactSpheres[i].visible = false;
         }
     }
 }
@@ -2830,18 +3589,25 @@ if (exampleButton && exampleMenu) {
 if (fitEditButton) {
     fitEditButton.addEventListener("click", () => {
         if (!uploadedSourceMeshes) return;
-        rigEditEnabled = !rigEditEnabled;
-        activeRigHandle = null;
-        updateFitUi();
-        updateViewportCursor();
-        setAssetStatus(rigEditEnabled ? "Fit rig overlay enabled" : "Fit rig overlay hidden", "ok");
+        if (rigEditEnabled) {
+            rigEditEnabled = false;
+            activeRigHandle = null;
+            clearRigDragTracking();
+            updateRigEditOverlay();
+            updateFitUi();
+            updateViewportCursor();
+            setAssetStatus("Skeleton editing disabled", "ok");
+            return;
+        }
+        beginSkeletonEdit();
+        setAssetStatus("Skeleton editing enabled", "ok");
     });
 }
 
 if (fitSkeletonButton) {
     fitSkeletonButton.addEventListener("click", () => {
         setDebugEnabled(!debugEnabled);
-        setAssetStatus(debugEnabled ? "Live skeleton overlay enabled" : "Live skeleton overlay hidden", "ok");
+        setAssetStatus(debugEnabled ? "Skeleton overlay enabled" : "Skeleton overlay hidden", "ok");
     });
 }
 
@@ -2932,11 +3698,14 @@ if (fitMirrorButton) {
 
 if (fitResetButton) {
     fitResetButton.addEventListener("click", () => {
+        resetActiveTargetRest();
+        if (uploadedRigMode === "preserved") resetUploadedRigRestToOriginal();
+        rebuildUploadedBinding();
         resetRigEditHandles();
-        rigEditEnabled = true;
+        beginSkeletonEdit({ reseed: true });
         updateFitUi();
         updateViewportCursor();
-        setAssetStatus("Reset rig edit nodes", "ok");
+        setAssetStatus("Reset skeleton edits", "ok");
     });
 }
 
@@ -2954,6 +3723,10 @@ if (pathLoopToggle) {
         pathLoop = pathLoopToggle.checked;
         updatePathUi();
     });
+}
+if (pathDisplayToggle) {
+    pathDisplayToggle.checked = pathDisplayVisible;
+    pathDisplayToggle.addEventListener("change", () => setPathDisplayVisible(pathDisplayToggle.checked));
 }
 setControlMode("path");
 
@@ -2983,8 +3756,126 @@ window.__ai4aBipedDebug = {
             controlMode,
             active: pathActive,
             loop: pathLoop,
+            displayVisible: pathDisplayVisible,
+            visualsVisible: pathGroup.visible,
             waypointIndex: pathWaypointIndex,
             waypointCount: pathWaypoints.length,
+        };
+    },
+    getRigEditState() {
+        const pointSnapshot = {};
+        const restSnapshot = getRigEditSeedMap();
+        const liveSnapshot = getLiveRigHandleMap();
+        for (const role of rigEditRoles) {
+            const point = rigEditPoints[role];
+            const rest = restSnapshot[role];
+            const live = liveSnapshot[role];
+            pointSnapshot[role] = point ? { x: point.x, y: point.y, z: point.z } : null;
+            pointSnapshot[`${role}Rest`] = rest ? { x: rest.x, y: rest.y, z: rest.z } : null;
+            pointSnapshot[`${role}Live`] = live ? { x: live.x, y: live.y, z: live.z } : null;
+        }
+        return {
+            enabled: rigEditEnabled,
+            hasManualPoints: rigEditHasManualPoints,
+            editedRoles: [...rigEditEditedRoles],
+            appliedControlRoles: [...uploadedRigEditedHandleRoles],
+            uploadedRigMode,
+            assetStatus: assetStatus ? assetStatus.textContent : "",
+            points: pointSnapshot,
+        };
+    },
+    getRigEditInputDebug() {
+        return { ...rigEditInputDebug, pointerId: rigEditPointerId };
+    },
+    getSkeletonConsistency() {
+        const visible = getVisibleSkeletonHandleMap() || {};
+        const deltas = {};
+        let maxDelta = 0;
+        for (const role of rigEditRoles) {
+            const shown = visible[role];
+            const live = getRigHandlePosition(role, new THREE.Vector3());
+            if (!shown || !live) {
+                deltas[role] = null;
+                continue;
+            }
+            const delta = shown.distanceTo(live);
+            deltas[role] = delta;
+            maxDelta = Math.max(maxDelta, delta);
+        }
+        return {
+            uploadedRigMode,
+            liveOverlay: uploadedRigMode === "preserved" && !!uploadedSourceMeshes,
+            maxDelta,
+            deltas,
+        };
+    },
+    getPreservedRigInvariants() {
+        let boneInverseMaxDelta = 0;
+        if (uploadedRigSkeleton) {
+            for (let index = 0; index < uploadedRigSkeleton.boneInverses.length; index++) {
+                boneInverseMaxDelta = Math.max(
+                    boneInverseMaxDelta,
+                    maxMatrixAbsDelta(uploadedRigSkeleton.boneInverses[index], uploadedRigOriginalBoneInverses[index])
+                );
+            }
+        }
+        const fitMatrix = uploadedAutoFitMatrix ? uploadedAutoFitMatrix.clone().premultiply(buildUserFitMatrix()) : null;
+        const controlErrors = {};
+        let controlMaxDelta = 0;
+        if (fitMatrix) {
+            for (const role of uploadedRigEditedHandleRoles) {
+                const desired = getDesiredPreservedRigHandleWorld(role, fitMatrix, new THREE.Vector3());
+                const actual = getRigHandlePosition(role, new THREE.Vector3());
+                const delta = desired && actual ? desired.distanceTo(actual) : null;
+                controlErrors[role] = delta;
+                if (delta !== null) controlMaxDelta = Math.max(controlMaxDelta, delta);
+            }
+        }
+        return {
+            uploadedRigMode,
+            editedControlRoles: [...uploadedRigEditedHandleRoles],
+            boneInverseMaxDelta,
+            controlMaxDelta,
+            controlErrors,
+        };
+    },
+    getUploadedDriverMap() {
+        return Object.fromEntries(rigEditRoles.map((role) => {
+            const bone = uploadedRigDriverBoneByName.get(role);
+            return [role, bone ? bone.name : null];
+        }));
+    },
+    getRigBoneWorld(role) {
+        const point = getRigHandlePosition(role, new THREE.Vector3());
+        return point ? { x: point.x, y: point.y, z: point.z } : null;
+    },
+    getRigBoneScreen(role) {
+        const point = getRigHandlePosition(role, new THREE.Vector3());
+        if (!point) return null;
+        const projected = point.project(camera);
+        return {
+            x: (projected.x * 0.5 + 0.5) * renderer.domElement.clientWidth,
+            y: (-projected.y * 0.5 + 0.5) * renderer.domElement.clientHeight,
+        };
+    },
+    getRigEditHandleScreen(role) {
+        const handle = rigEditJointMap.get(role);
+        if (!handle || !handle.visible) return null;
+        const point = handle.position.clone().project(camera);
+        return {
+            x: (point.x * 0.5 + 0.5) * renderer.domElement.clientWidth,
+            y: (-point.y * 0.5 + 0.5) * renderer.domElement.clientHeight,
+        };
+    },
+    getRigEditHandleVisuals(role) {
+        const visibleHandle = rigEditJointMap.get(role);
+        const pickHandle = rigEditHandleMap.get(role);
+        return {
+            visibleRadius: visibleHandle?.geometry?.parameters?.radius ?? null,
+            visibleOpacity: visibleHandle?.material?.opacity ?? null,
+            pickRadius: pickHandle?.geometry?.parameters?.radius ?? null,
+            pickOpacity: pickHandle?.material?.opacity ?? null,
+            pickVisible: !!pickHandle?.visible,
         };
     },
 };

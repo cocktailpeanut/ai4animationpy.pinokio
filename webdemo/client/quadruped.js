@@ -11,6 +11,22 @@ const DEMO = {
 
 const loader = new GLTFLoader();
 const EXAMPLE_KIND = "animal";
+const APP_BASE_URL = new URL("../", import.meta.url);
+
+function resolveAppUrl(path) {
+    if (!path) return "";
+    if (/^[a-z][a-z\d+.-]*:/i.test(path) || path.startsWith("//")) return path;
+    const normalizedPath = path.startsWith("/") ? `.${path}` : path;
+    return new URL(normalizedPath, APP_BASE_URL).toString();
+}
+
+function createWebSocketUrl(path, params) {
+    const url = new URL(resolveAppUrl(path));
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    url.search = params.toString();
+    return url.toString();
+}
+
 const SESSION_REPLACED_CLOSE_CODE = 4001;
 const SESSION_REPLACED_MESSAGE = "This demo is now active in another window.";
 const CLIENT_ID_KEY = "ai4animation-animal-client-id";
@@ -196,6 +212,7 @@ let rightStick = [0, 0];
 let controlMode = "path";
 let pathActive = false;
 let pathLoop = false;
+let pathDisplayVisible = true;
 let pathDragActive = false;
 let pathWaypointIndex = 0;
 const pathWaypoints = [];
@@ -345,6 +362,7 @@ const pathControls = document.getElementById("path-controls");
 const pathPlayButton = document.getElementById("path-play-btn");
 const pathClearButton = document.getElementById("path-clear-btn");
 const pathLoopToggle = document.getElementById("path-loop-toggle");
+const pathDisplayToggle = document.getElementById("path-display-toggle");
 const pathStatus = document.getElementById("path-status");
 
 const styleSwitcher = document.getElementById("style-switcher");
@@ -765,6 +783,7 @@ function updatePathUi() {
     }
     if (pathClearButton) pathClearButton.disabled = pathWaypoints.length === 0;
     if (pathLoopToggle) pathLoopToggle.checked = pathLoop;
+    if (pathDisplayToggle) pathDisplayToggle.checked = pathDisplayVisible;
     if (pathStatus) {
         if (pathWaypoints.length === 0) {
             pathStatus.textContent = "No path points";
@@ -779,7 +798,8 @@ function rebuildPathVisuals() {
     while (pathPointGroup.children.length) {
         pathPointGroup.remove(pathPointGroup.children[0]);
     }
-    pathGroup.visible = controlMode === "path";
+    const showPathVisuals = controlMode === "path" && pathDisplayVisible;
+    pathGroup.visible = showPathVisuals;
     const points = pathWaypoints.map((point) => new THREE.Vector3(point.x, 0.06, point.z));
     pathLineGeometry.setAttribute(
         "position",
@@ -797,8 +817,14 @@ function rebuildPathVisuals() {
         pathPointGroup.add(marker);
     }
     const target = pathWaypoints[pathWaypointIndex];
-    pathTargetMarker.visible = !!target && controlMode === "path";
+    pathTargetMarker.visible = !!target && showPathVisuals;
     if (target) pathTargetMarker.position.set(target.x, 0.035, target.z);
+}
+
+function setPathDisplayVisible(visible) {
+    pathDisplayVisible = !!visible;
+    if (pathDisplayToggle) pathDisplayToggle.checked = pathDisplayVisible;
+    rebuildPathVisuals();
 }
 
 function setControlMode(mode) {
@@ -1828,7 +1854,7 @@ function applyLandmarkCorrection() {
 }
 
 async function loadDefaultModel() {
-    const gltf = await loader.loadAsync(DEMO.modelPath);
+    const gltf = await loader.loadAsync(resolveAppUrl(DEMO.modelPath));
     clearVirtualBones();
     scene.add(gltf.scene);
     modelRoot = gltf.scene;
@@ -1995,7 +2021,7 @@ async function loadExampleManifest() {
     if (!exampleButton || !exampleMenu) return;
     replaceExampleOptions("Loading examples...");
     try {
-        const response = await fetch(`/api/rigged-mesh/${EXAMPLE_KIND}`, { cache: "no-store" });
+        const response = await fetch(resolveAppUrl(`/api/rigged-mesh/${EXAMPLE_KIND}`), { cache: "no-store" });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const payload = await response.json();
         exampleAssets = Array.isArray(payload.items) ? payload.items : [];
@@ -2013,7 +2039,7 @@ async function loadExampleAsset(example) {
     setExamplePickerDisabled(true);
     setAssetStatus(`Fetching ${example.name || example.fileName}...`, "warn");
     try {
-        const response = await fetch(example.url, { cache: "force-cache" });
+        const response = await fetch(resolveAppUrl(example.url), { cache: "force-cache" });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const blob = await response.blob();
         if (token !== exampleLoadToken) return;
@@ -2398,11 +2424,10 @@ function hideBusyOverlay() {
 
 function connectWebSocket() {
     if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) return;
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const params = new URLSearchParams(window.location.search);
     params.set("client_id", CLIENT_ID);
     params.set("started_at", `${CLIENT_STARTED_AT}`);
-    ws = new WebSocket(`${protocol}//${window.location.host}${DEMO.wsPath}?${params.toString()}`);
+    ws = new WebSocket(createWebSocketUrl(DEMO.wsPath, params));
     ws.binaryType = "arraybuffer";
 
     ws.onopen = () => {
@@ -3275,6 +3300,10 @@ if (pathLoopToggle) {
         pathLoop = pathLoopToggle.checked;
         updatePathUi();
     });
+}
+if (pathDisplayToggle) {
+    pathDisplayToggle.checked = pathDisplayVisible;
+    pathDisplayToggle.addEventListener("change", () => setPathDisplayVisible(pathDisplayToggle.checked));
 }
 setControlMode("path");
 

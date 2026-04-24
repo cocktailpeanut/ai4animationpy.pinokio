@@ -18,6 +18,7 @@ body {
 
 #viewport canvas {
     display: block;
+    touch-action: none;
 }
 
 /* ── Header ──────────────────────────────────────────────── */
@@ -96,6 +97,7 @@ body {
     background: rgba(14, 17, 26, 0.84);
     backdrop-filter: blur(18px);
     box-shadow: 0 16px 40px rgba(0, 0, 0, 0.26);
+    overflow: visible;
 }
 
 #asset-meta {
@@ -296,6 +298,16 @@ body {
     background: rgba(14, 17, 26, 0.82);
     backdrop-filter: blur(18px);
     box-shadow: 0 14px 34px rgba(0, 0, 0, 0.22);
+}
+
+body[data-demo="biped"] #fit-panel,
+body[data-demo="biped"] #fit-panel * {
+    pointer-events: none;
+}
+
+body[data-demo="biped"] #fit-panel button,
+body[data-demo="biped"] #fit-panel input {
+    pointer-events: auto;
 }
 
 #fit-panel-header {
@@ -2070,6 +2082,26 @@ kbd {
     box-shadow: none !important;
   }
 
+  body[data-demo="quadruped"] #asset-dock,
+  body[data-demo="biped"] #asset-dock {
+    position: relative !important;
+    z-index: 80;
+    overflow: visible;
+  }
+
+  body[data-demo="quadruped"] #asset-examples,
+  body[data-demo="biped"] #asset-examples,
+  body[data-demo="quadruped"] #example-picker,
+  body[data-demo="biped"] #example-picker {
+    position: relative;
+    z-index: 81;
+  }
+
+  body[data-demo="quadruped"] #example-picker-menu,
+  body[data-demo="biped"] #example-picker-menu {
+    z-index: 220;
+  }
+
   body[data-demo="quadruped"] #header,
   body[data-demo="quadruped"] #header-nav,
   body[data-demo="biped"] #header,
@@ -2441,9 +2473,14 @@ kbd {
 
 .path-button-row {
     display: grid;
-    grid-template-columns: 1fr 1fr auto;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 6px;
-    align-items: center;
+    align-items: stretch;
+}
+
+.path-button-row button,
+.path-toggle-chip {
+    width: 100%;
 }
 
 .path-button-row button:disabled {
@@ -2451,10 +2488,10 @@ kbd {
     opacity: 0.45;
 }
 
-.path-loop-toggle {
+.path-toggle-chip {
     display: inline-flex;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
     gap: 5px;
     min-height: 32px;
     padding: 0 7px;
@@ -2468,7 +2505,7 @@ kbd {
     user-select: none;
 }
 
-.path-loop-toggle input {
+.path-toggle-chip input {
     width: 13px;
     height: 13px;
     margin: 0;
@@ -2581,8 +2618,8 @@ kbd {
     font-size: 12px;
   }
 
-  body[data-demo="quadruped"] .path-loop-toggle,
-  body[data-demo="biped"] .path-loop-toggle {
+  body[data-demo="quadruped"] .path-toggle-chip,
+  body[data-demo="biped"] .path-toggle-chip {
     min-height: 28px;
     border-radius: 4px;
   }
