@@ -213,6 +213,7 @@ let controlMode = "path";
 let pathActive = false;
 let pathLoop = false;
 let pathDisplayVisible = true;
+let pathQueueWaypoints = false;
 let pathDragActive = false;
 let pathWaypointIndex = 0;
 const pathWaypoints = [];
@@ -363,6 +364,7 @@ const pathPlayButton = document.getElementById("path-play-btn");
 const pathClearButton = document.getElementById("path-clear-btn");
 const pathLoopToggle = document.getElementById("path-loop-toggle");
 const pathDisplayToggle = document.getElementById("path-display-toggle");
+const pathQueueToggle = document.getElementById("path-queue-toggle");
 const pathStatus = document.getElementById("path-status");
 
 const styleSwitcher = document.getElementById("style-switcher");
@@ -784,6 +786,7 @@ function updatePathUi() {
     if (pathClearButton) pathClearButton.disabled = pathWaypoints.length === 0;
     if (pathLoopToggle) pathLoopToggle.checked = pathLoop;
     if (pathDisplayToggle) pathDisplayToggle.checked = pathDisplayVisible;
+    if (pathQueueToggle) pathQueueToggle.checked = pathQueueWaypoints;
     if (pathStatus) {
         if (pathWaypoints.length === 0) {
             pathStatus.textContent = "No path points";
@@ -800,12 +803,7 @@ function rebuildPathVisuals() {
     }
     const showPathVisuals = controlMode === "path" && pathDisplayVisible;
     pathGroup.visible = showPathVisuals;
-    const points = pathWaypoints.map((point) => new THREE.Vector3(point.x, 0.06, point.z));
-    pathLineGeometry.setAttribute(
-        "position",
-        new THREE.BufferAttribute(new Float32Array(points.flatMap((point) => [point.x, point.y, point.z])), 3)
-    );
-    if (points.length > 0) pathLineGeometry.computeBoundingSphere();
+    updatePathLineGeometry();
     for (let index = 0; index < pathWaypoints.length; index++) {
         const point = pathWaypoints[index];
         const marker = new THREE.Mesh(
@@ -819,6 +817,23 @@ function rebuildPathVisuals() {
     const target = pathWaypoints[pathWaypointIndex];
     pathTargetMarker.visible = !!target && showPathVisuals;
     if (target) pathTargetMarker.position.set(target.x, 0.035, target.z);
+}
+
+function getPathLinePoints() {
+    const points = pathWaypoints.map((point) => new THREE.Vector3(point.x, 0.06, point.z));
+    if (points.length === 1) {
+        points.unshift(new THREE.Vector3(currentRootPos.x, 0.06, currentRootPos.z));
+    }
+    return points;
+}
+
+function updatePathLineGeometry() {
+    const points = getPathLinePoints();
+    pathLineGeometry.setAttribute(
+        "position",
+        new THREE.BufferAttribute(new Float32Array(points.flatMap((point) => [point.x, point.y, point.z])), 3)
+    );
+    if (points.length > 0) pathLineGeometry.computeBoundingSphere();
 }
 
 function setPathDisplayVisible(visible) {
@@ -873,6 +888,21 @@ function appendPathWaypoint(point) {
     updatePathUi();
     rebuildPathVisuals();
     return true;
+}
+
+function replacePathWithWaypoint(point) {
+    pathWaypoints.length = 0;
+    pathWaypointIndex = 0;
+    pathActive = false;
+    rightStick = [0, 0];
+    return appendPathWaypoint(point);
+}
+
+function beginPathPlacement(event) {
+    if (controlMode !== "path" || rigEditEnabled || activeLandmarkTarget) return false;
+    const point = getGroundPointFromEvent(event);
+    if (!point) return false;
+    return pathQueueWaypoints ? appendPathWaypoint(point) : replacePathWithWaypoint(point);
 }
 
 function handlePathPointer(event) {
@@ -2807,6 +2837,7 @@ function animate(timestamp) {
     updateCamera();
     updateFacingGizmo();
     updateSpeedOverlayPosition();
+    if (pathDisplayVisible && pathWaypoints.length > 0) updatePathLineGeometry();
     updateFpsDisplay();
     renderer.render(scene, camera);
     sendInput(timestamp);
@@ -2890,7 +2921,7 @@ canvas.addEventListener("pointerdown", (event) => {
     }
 
     if (event.button !== 0) return;
-    if (controlMode === "path" && handlePathPointer(event)) {
+    if (controlMode === "path" && beginPathPlacement(event)) {
         pathDragActive = true;
         orbitPointerId = event.pointerId;
         canvas.setPointerCapture(event.pointerId);
@@ -3304,6 +3335,13 @@ if (pathLoopToggle) {
 if (pathDisplayToggle) {
     pathDisplayToggle.checked = pathDisplayVisible;
     pathDisplayToggle.addEventListener("change", () => setPathDisplayVisible(pathDisplayToggle.checked));
+}
+if (pathQueueToggle) {
+    pathQueueToggle.checked = pathQueueWaypoints;
+    pathQueueToggle.addEventListener("change", () => {
+        pathQueueWaypoints = pathQueueToggle.checked;
+        updatePathUi();
+    });
 }
 setControlMode("path");
 
