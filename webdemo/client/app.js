@@ -265,7 +265,8 @@ function setRouteDemoId(demoId) {
 }
 
 function loadTheme() {
-  return window.localStorage.getItem(THEME_KEY) || STORAGE_FALLBACK_THEME;
+  const theme = window.localStorage.getItem(THEME_KEY) || STORAGE_FALLBACK_THEME;
+  return theme === "light" ? "light" : "dark";
 }
 
 function cycleTheme() {
@@ -278,19 +279,20 @@ function cycleTheme() {
 function applyTheme(theme) {
   document.documentElement.dataset.theme = theme;
   dom.themeButton.textContent = theme === "dark" ? "Light" : "Dark";
+  dom.themeButton.setAttribute("aria-pressed", theme === "dark" ? "true" : "false");
 
   if (theme === "dark") {
-    scene.background = new THREE.Color(0x09090b);
-    groundMaterial.color.set(0x111115);
-    grid.material.color.set(0x28282d);
+    scene.background = new THREE.Color(0x0f1012);
+    groundMaterial.color.set(0x17191c);
+    grid.material.color.set(0x565d66);
     grid.material.vertexColors = false;
-    skeletonMaterial.color.set(0x78a8ff);
+    skeletonMaterial.color.set(0xd8dee8);
   } else {
-    scene.background = new THREE.Color(0xf6f6f3);
-    groundMaterial.color.set(0xebebe8);
-    grid.material.color.set(0xdadadf);
+    scene.background = new THREE.Color(0xf4f4f2);
+    groundMaterial.color.set(0xe8e8e4);
+    grid.material.color.set(0x969fa8);
     grid.material.vertexColors = false;
-    skeletonMaterial.color.set(0x0a69ff);
+    skeletonMaterial.color.set(0x2f343b);
   }
 }
 

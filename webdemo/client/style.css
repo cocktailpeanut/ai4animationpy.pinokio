@@ -4,16 +4,16 @@
   color-scheme: light;
   --font-sans: "IBM Plex Sans", sans-serif;
   --font-mono: "IBM Plex Mono", monospace;
-  --bg: oklch(0.972 0.004 95);
+  --bg: oklch(0.965 0.003 250);
   --bg-elevated: rgba(255, 255, 255, 0.9);
   --panel: rgba(255, 255, 255, 0.78);
   --panel-strong: rgba(255, 255, 255, 0.94);
-  --text: oklch(0.18 0.01 260);
-  --muted: oklch(0.52 0.012 260);
+  --text: oklch(0.18 0.004 250);
+  --muted: oklch(0.5 0.006 250);
   --border: rgba(17, 19, 24, 0.08);
   --border-strong: rgba(17, 19, 24, 0.14);
-  --accent: oklch(0.58 0.2 258);
-  --accent-soft: rgba(75, 112, 255, 0.08);
+  --accent: oklch(0.48 0.04 250);
+  --accent-soft: rgba(31, 41, 55, 0.07);
   --shadow: 0 10px 32px rgba(12, 14, 18, 0.05);
   --radius-lg: 18px;
   --radius-md: 14px;
@@ -22,16 +22,16 @@
 
 html[data-theme="dark"] {
   color-scheme: dark;
-  --bg: oklch(0.16 0.007 275);
-  --bg-elevated: rgba(17, 18, 24, 0.86);
-  --panel: rgba(19, 20, 27, 0.8);
-  --panel-strong: rgba(22, 23, 31, 0.9);
-  --text: oklch(0.95 0.005 270);
-  --muted: oklch(0.72 0.014 270);
+  --bg: oklch(0.155 0.004 250);
+  --bg-elevated: rgba(18, 19, 22, 0.88);
+  --panel: rgba(21, 22, 25, 0.82);
+  --panel-strong: rgba(24, 25, 28, 0.92);
+  --text: oklch(0.94 0.003 250);
+  --muted: oklch(0.72 0.006 250);
   --border: rgba(255, 255, 255, 0.1);
   --border-strong: rgba(255, 255, 255, 0.16);
-  --accent: oklch(0.78 0.11 258);
-  --accent-soft: rgba(132, 171, 255, 0.12);
+  --accent: oklch(0.78 0.025 250);
+  --accent-soft: rgba(229, 231, 235, 0.1);
   --shadow: 0 18px 48px rgba(0, 0, 0, 0.22);
 }
 

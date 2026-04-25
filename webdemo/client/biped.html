@@ -14,10 +14,22 @@
                 <div id="viewport"></div>
             </section>
             <aside class="quad-sidebar">
-                <nav id="demo-tabs" aria-label="Demo">
-                    <a class="demo-tab active" href="./human" aria-current="page">Human</a>
-                    <a class="demo-tab" href="./animal">Animal</a>
-                </nav>
+                <div class="demo-toolbar">
+                    <nav id="demo-tabs" aria-label="Demo">
+                        <a class="demo-tab active" href="./human" aria-current="page">Human</a>
+                        <a class="demo-tab" href="./animal">Animal</a>
+                    </nav>
+                    <div id="theme-control" class="theme-segment" role="group" aria-label="Color theme">
+                        <button id="theme-dark-button" class="theme-choice" type="button" aria-label="Use dark theme">
+                            <span class="theme-icon" aria-hidden="true">☾</span>
+                            <span class="theme-label">Dark</span>
+                        </button>
+                        <button id="theme-light-button" class="theme-choice" type="button" aria-label="Use light theme">
+                            <span class="theme-icon" aria-hidden="true">☀</span>
+                            <span class="theme-label">Light</span>
+                        </button>
+                    </div>
+                </div>
                 <div id="asset-dock">
                     <div id="asset-meta">
                         <div id="asset-label">Render Asset</div>

@@ -352,6 +352,8 @@ const fitLengthValue = document.getElementById("fit-length-value");
 const fitLiftValue = document.getElementById("fit-lift-value");
 const fitForwardValue = document.getElementById("fit-forward-value");
 const directionRingToggle = document.getElementById("direction-ring-toggle");
+const themeDarkButton = document.getElementById("theme-dark-button");
+const themeLightButton = document.getElementById("theme-light-button");
 const markHeadButton = document.getElementById("mark-head-btn");
 const markHipsButton = document.getElementById("mark-hips-btn");
 const markTailButton = document.getElementById("mark-tail-btn");
@@ -376,9 +378,10 @@ if (styleDropdownLabel) styleDropdownLabel.style.display = "none";
 
 const viewportEl = document.getElementById("viewport");
 
+const THEME_KEY = "ai4animation-theme";
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x2a2a3e);
-scene.fog = new THREE.Fog(0x2a2a3e, 15, 40);
+scene.background = new THREE.Color(0x0f1012);
+scene.fog = new THREE.Fog(0x0f1012, 15, 40);
 
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
 camera.position.set(0, 2, 6);
@@ -417,15 +420,68 @@ scene.add(new THREE.HemisphereLight(0x88aacc, 0x443322, 0.5));
 
 const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(60, 60),
-    new THREE.MeshStandardMaterial({ color: 0x3a3a50, roughness: 0.9, metalness: 0.1 })
+    new THREE.MeshStandardMaterial({ color: 0x17191c, roughness: 0.9, metalness: 0.1 })
 );
 ground.rotation.x = -Math.PI / 2;
 ground.receiveShadow = true;
 scene.add(ground);
 
-const grid = new THREE.GridHelper(60, 60, 0x555577, 0x444466);
+const grid = new THREE.GridHelper(60, 60, 0x5f6670, 0x484f58);
 grid.position.y = 0.005;
 scene.add(grid);
+
+function setGridColors(primary, secondary) {
+    const colorAttribute = grid.geometry.getAttribute("color");
+    if (!colorAttribute) {
+        grid.material.color.set(secondary);
+        return;
+    }
+    const primaryColor = new THREE.Color(primary);
+    const secondaryColor = new THREE.Color(secondary);
+    const centerLines = new Set([30, 91]);
+    for (let vertexIndex = 0; vertexIndex < colorAttribute.count; vertexIndex += 4) {
+        const lineIndex = vertexIndex / 4;
+        const color = centerLines.has(lineIndex) ? primaryColor : secondaryColor;
+        for (let offset = 0; offset < 4; offset += 1) {
+            colorAttribute.setXYZ(vertexIndex + offset, color.r, color.g, color.b);
+        }
+    }
+    grid.material.vertexColors = true;
+    grid.material.color.set(0xffffff);
+    colorAttribute.needsUpdate = true;
+}
+
+function loadTheme() {
+    const theme = window.localStorage.getItem(THEME_KEY);
+    return theme === "light" ? "light" : "dark";
+}
+
+function applyTheme(theme) {
+    const isLight = theme === "light";
+    document.documentElement.dataset.theme = isLight ? "light" : "dark";
+    if (themeDarkButton && themeLightButton) {
+        themeDarkButton.classList.toggle("active", !isLight);
+        themeLightButton.classList.toggle("active", isLight);
+        themeDarkButton.setAttribute("aria-pressed", isLight ? "false" : "true");
+        themeLightButton.setAttribute("aria-pressed", isLight ? "true" : "false");
+    }
+    const background = isLight ? 0xf4f4f2 : 0x0f1012;
+    scene.background.set(background);
+    scene.fog.color.set(background);
+    scene.fog.near = isLight ? 60 : 24;
+    scene.fog.far = isLight ? 180 : 90;
+    ground.material.color.set(isLight ? 0xe8e8e4 : 0x17191c);
+    setGridColors(
+        isLight ? 0x6f7780 : 0x67717d,
+        isLight ? 0x969fa8 : 0x323a43
+    );
+}
+
+function setTheme(theme) {
+    const next = theme === "light" ? "light" : "dark";
+    window.localStorage.setItem(THEME_KEY, next);
+    applyTheme(next);
+}
 
 const debugGroup = new THREE.Group();
 debugGroup.renderOrder = 999;
@@ -3344,6 +3400,10 @@ if (pathQueueToggle) {
     });
 }
 setControlMode("path");
+
+if (themeDarkButton) themeDarkButton.addEventListener("click", () => setTheme("dark"));
+if (themeLightButton) themeLightButton.addEventListener("click", () => setTheme("light"));
+applyTheme(loadTheme());
 
 loadDefaultModel()
     .then(() => connectWebSocket())
