@@ -6,43 +6,52 @@
 
 :root {
     color-scheme: dark;
-    --motion-bg: #0f1012;
-    --motion-stage: #17191c;
-    --motion-topbar: #111215;
-    --motion-sidebar: #181a1d;
-    --motion-panel: rgba(20, 22, 25, 0.86);
-    --motion-panel-solid: #181a1d;
-    --motion-line: rgba(255, 255, 255, 0.09);
-    --motion-line-strong: rgba(255, 255, 255, 0.18);
-    --motion-text: #f1f3f5;
-    --motion-muted: #a9afb7;
+    --motion-bg: #121d19;
+    --motion-stage: #17231f;
+    --motion-topbar: #14201c;
+    --motion-sidebar: #1b2823;
+    --motion-panel: rgba(25, 37, 32, 0.88);
+    --motion-panel-solid: #1b2823;
+    --motion-line: rgba(226, 238, 216, 0.09);
+    --motion-line-strong: rgba(226, 238, 216, 0.18);
+    --motion-text: #eef3e8;
+    --motion-muted: #b4c0b1;
     --motion-control: var(--motion-line);
-    --motion-control-hover: rgba(255, 255, 255, 0.14);
-    --motion-accent: #d8dee8;
-    --motion-focus: rgba(216, 222, 232, 0.62);
+    --motion-control-hover: rgba(226, 238, 216, 0.14);
+    --motion-accent: #f2c27c;
+    --motion-focus: rgba(242, 194, 124, 0.52);
+    --motion-bg-grid: rgba(226, 238, 216, 0.06);
+    --motion-bg-wash: rgba(201, 112, 72, 0.14);
 }
 
 html[data-theme="light"] {
     color-scheme: light;
-    --motion-bg: #f4f4f2;
-    --motion-stage: #e8e8e4;
-    --motion-topbar: #f8f8f6;
-    --motion-sidebar: #fbfbf9;
-    --motion-panel: rgba(255, 255, 255, 0.88);
-    --motion-panel-solid: #fbfbf9;
-    --motion-line: rgba(18, 20, 23, 0.1);
-    --motion-line-strong: rgba(18, 20, 23, 0.18);
-    --motion-text: #1f2328;
-    --motion-muted: #5b626b;
-    --motion-control: rgba(18, 20, 23, 0.06);
-    --motion-control-hover: rgba(18, 20, 23, 0.11);
-    --motion-accent: #2f343b;
-    --motion-focus: rgba(47, 52, 59, 0.32);
+    --motion-bg: #f2f0df;
+    --motion-stage: #e6e6d5;
+    --motion-topbar: #faf8eb;
+    --motion-sidebar: #fcfbef;
+    --motion-panel: rgba(252, 251, 239, 0.9);
+    --motion-panel-solid: #fcfbef;
+    --motion-line: rgba(46, 66, 52, 0.1);
+    --motion-line-strong: rgba(46, 66, 52, 0.18);
+    --motion-text: #243129;
+    --motion-muted: #627060;
+    --motion-control: rgba(46, 66, 52, 0.06);
+    --motion-control-hover: rgba(46, 66, 52, 0.11);
+    --motion-accent: #7d4d35;
+    --motion-focus: rgba(125, 77, 53, 0.32);
+    --motion-bg-grid: rgba(46, 66, 52, 0.06);
+    --motion-bg-wash: rgba(174, 88, 64, 0.1);
 }
 
 body {
     overflow: hidden;
-    background: var(--motion-bg);
+    background:
+        linear-gradient(120deg, transparent 0 64%, var(--motion-bg-wash) 64% 65%, transparent 65% 100%),
+        linear-gradient(var(--motion-bg-grid) 1px, transparent 1px),
+        linear-gradient(90deg, var(--motion-bg-grid) 1px, transparent 1px),
+        var(--motion-bg);
+    background-size: auto, 28px 28px, 28px 28px, auto;
     font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
     color: var(--motion-text);
 }

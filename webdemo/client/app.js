@@ -282,17 +282,17 @@ function applyTheme(theme) {
   dom.themeButton.setAttribute("aria-pressed", theme === "dark" ? "true" : "false");
 
   if (theme === "dark") {
-    scene.background = new THREE.Color(0x0f1012);
-    groundMaterial.color.set(0x17191c);
-    grid.material.color.set(0x565d66);
+    scene.background = new THREE.Color(0x17211d);
+    groundMaterial.color.set(0x1d2924);
+    grid.material.color.set(0x68786f);
     grid.material.vertexColors = false;
-    skeletonMaterial.color.set(0xd8dee8);
+    skeletonMaterial.color.set(0xf2c27c);
   } else {
-    scene.background = new THREE.Color(0xf4f4f2);
-    groundMaterial.color.set(0xe8e8e4);
-    grid.material.color.set(0x969fa8);
+    scene.background = new THREE.Color(0xf2f0df);
+    groundMaterial.color.set(0xe6e6d5);
+    grid.material.color.set(0x8e9a8c);
     grid.material.vertexColors = false;
-    skeletonMaterial.color.set(0x2f343b);
+    skeletonMaterial.color.set(0x7d4d35);
   }
 }
 

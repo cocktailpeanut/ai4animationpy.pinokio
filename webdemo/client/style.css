@@ -4,16 +4,20 @@
   color-scheme: light;
   --font-sans: "IBM Plex Sans", sans-serif;
   --font-mono: "IBM Plex Mono", monospace;
-  --bg: oklch(0.965 0.003 250);
+  --bg: oklch(0.94 0.018 122);
+  --bg-field: oklch(0.965 0.015 104);
+  --bg-grid: rgba(62, 87, 76, 0.11);
+  --bg-grid-strong: rgba(62, 87, 76, 0.16);
+  --bg-wash: rgba(174, 88, 64, 0.12);
   --bg-elevated: rgba(255, 255, 255, 0.9);
-  --panel: rgba(255, 255, 255, 0.78);
-  --panel-strong: rgba(255, 255, 255, 0.94);
-  --text: oklch(0.18 0.004 250);
-  --muted: oklch(0.5 0.006 250);
-  --border: rgba(17, 19, 24, 0.08);
-  --border-strong: rgba(17, 19, 24, 0.14);
-  --accent: oklch(0.48 0.04 250);
-  --accent-soft: rgba(31, 41, 55, 0.07);
+  --panel: rgba(250, 251, 244, 0.78);
+  --panel-strong: rgba(252, 253, 247, 0.94);
+  --text: oklch(0.2 0.018 135);
+  --muted: oklch(0.47 0.02 140);
+  --border: rgba(36, 54, 44, 0.1);
+  --border-strong: rgba(36, 54, 44, 0.18);
+  --accent: oklch(0.48 0.075 39);
+  --accent-soft: rgba(174, 88, 64, 0.12);
   --shadow: 0 10px 32px rgba(12, 14, 18, 0.05);
   --radius-lg: 18px;
   --radius-md: 14px;
@@ -22,16 +26,20 @@
 
 html[data-theme="dark"] {
   color-scheme: dark;
-  --bg: oklch(0.155 0.004 250);
-  --bg-elevated: rgba(18, 19, 22, 0.88);
-  --panel: rgba(21, 22, 25, 0.82);
-  --panel-strong: rgba(24, 25, 28, 0.92);
-  --text: oklch(0.94 0.003 250);
-  --muted: oklch(0.72 0.006 250);
-  --border: rgba(255, 255, 255, 0.1);
-  --border-strong: rgba(255, 255, 255, 0.16);
-  --accent: oklch(0.78 0.025 250);
-  --accent-soft: rgba(229, 231, 235, 0.1);
+  --bg: oklch(0.17 0.018 150);
+  --bg-field: oklch(0.205 0.02 153);
+  --bg-grid: rgba(220, 236, 216, 0.08);
+  --bg-grid-strong: rgba(220, 236, 216, 0.12);
+  --bg-wash: rgba(201, 112, 72, 0.16);
+  --bg-elevated: rgba(24, 31, 28, 0.88);
+  --panel: rgba(25, 34, 30, 0.82);
+  --panel-strong: rgba(29, 39, 35, 0.92);
+  --text: oklch(0.92 0.013 120);
+  --muted: oklch(0.74 0.018 130);
+  --border: rgba(233, 243, 226, 0.1);
+  --border-strong: rgba(233, 243, 226, 0.18);
+  --accent: oklch(0.77 0.08 58);
+  --accent-soft: rgba(201, 112, 72, 0.16);
   --shadow: 0 18px 48px rgba(0, 0, 0, 0.22);
 }
 
@@ -43,14 +51,22 @@ html,
 body {
   margin: 0;
   min-height: 100%;
-  background: var(--bg);
+  background:
+    linear-gradient(120deg, transparent 0 63%, var(--bg-wash) 63% 64%, transparent 64% 100%),
+    linear-gradient(var(--bg-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--bg-grid) 1px, transparent 1px),
+    linear-gradient(var(--bg-grid-strong) 1px, transparent 1px),
+    linear-gradient(90deg, var(--bg-grid-strong) 1px, transparent 1px),
+    linear-gradient(135deg, var(--bg-field), var(--bg));
+  background-attachment: fixed;
+  background-size: auto, 24px 24px, 24px 24px, 120px 120px, 120px 120px, auto;
   color: var(--text);
   font-family: var(--font-sans);
 }
 
 body {
   position: relative;
-  transition: background-color 180ms ease, color 180ms ease;
+  transition: color 180ms ease;
 }
 
 body::before,

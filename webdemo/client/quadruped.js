@@ -380,8 +380,8 @@ const viewportEl = document.getElementById("viewport");
 
 const THEME_KEY = "ai4animation-theme";
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0f1012);
-scene.fog = new THREE.Fog(0x0f1012, 15, 40);
+scene.background = new THREE.Color(0x17231f);
+scene.fog = new THREE.Fog(0x17231f, 15, 40);
 
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
 camera.position.set(0, 2, 6);
@@ -465,7 +465,7 @@ function applyTheme(theme) {
         themeDarkButton.setAttribute("aria-pressed", isLight ? "false" : "true");
         themeLightButton.setAttribute("aria-pressed", isLight ? "true" : "false");
     }
-    const background = isLight ? 0xf4f4f2 : 0x0f1012;
+    const background = isLight ? 0xf2f0df : 0x17231f;
     scene.background.set(background);
     scene.fog.color.set(background);
     scene.fog.near = isLight ? 60 : 24;
