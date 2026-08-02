@@ -9,8 +9,8 @@ module.exports = async (kernel) => {
         venv: "app/env",
         venv_python: "3.12",
         env: {
-          HOST: "127.0.0.1",
-          PORT: `${PORT}`
+          WEB_HOST: "127.0.0.1",
+          WEB_PORT: `${PORT}`
         },
         message: "python webdemo/run.py",
         on: [{

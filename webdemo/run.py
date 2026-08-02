@@ -5,8 +5,8 @@ import uvicorn
 from server import app
 
 
-HOST = os.environ.get("HOST", "127.0.0.1")
-PORT = int(os.environ.get("PORT", "8000"))
+HOST = os.environ.get("WEB_HOST", "127.0.0.1")
+PORT = int(os.environ.get("WEB_PORT", "8000"))
 
 
 def main():
